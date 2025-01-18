@@ -14,7 +14,8 @@ use crate::{
     error::{BtcError, Result},
     merkle_root::MerkleRoot,
     sha256::Hash,
-    DIFFICULTY_UPDATE_INTERVAL, IDEAL_BLOCK_TIME, MAX_MEMPOOL_TRANSACTION_AGE, MIN_TARGET, U256,
+    Saveable, DIFFICULTY_UPDATE_INTERVAL, IDEAL_BLOCK_TIME, MAX_MEMPOOL_TRANSACTION_AGE,
+    MIN_TARGET, U256,
 };
 
 /// UTXO set represented as HashMap where
@@ -318,5 +319,26 @@ impl Blockchain {
                 *marked = false;
             });
         }
+    }
+}
+
+/// Save and load expecting CBOR from ciborium as format
+impl Saveable for Blockchain {
+    fn load<R: std::io::Read>(reader: R) -> std::io::Result<Self> {
+        ciborium::de::from_reader(reader).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Failed to deserialize Blockchain",
+            )
+        })
+    }
+
+    fn save<W: std::io::Write>(&self, writer: W) -> std::io::Result<()> {
+        ciborium::ser::into_writer(self, writer).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Failed to serialize Blockchain",
+            )
+        })
     }
 }

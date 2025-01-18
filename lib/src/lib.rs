@@ -29,3 +29,21 @@ pub const MIN_TARGET: U256 = U256([
 pub const DIFFICULTY_UPDATE_INTERVAL: u64 = 50; // 2016 blocks in real BTC
 /// Maximum mempool transaction age in seconds
 pub const MAX_MEMPOOL_TRANSACTION_AGE: u64 = 600; // 72 hours in real BTC
+
+/// Saveable trait - save and load from file
+pub trait Saveable
+where
+    Self: Sized,
+{
+    fn load<R: std::io::Read>(reader: R) -> std::io::Result<Self>;
+    fn save<W: std::io::Write>(&self, writer: W) -> std::io::Result<()>;
+    // Default implementations:
+    fn load_from_file<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Self> {
+        let file = std::fs::File::open(&path)?;
+        Self::load(file)
+    }
+    fn save_to_file<P: AsRef<std::path::Path>>(&self, path: P) -> std::io::Result<()> {
+        let file = std::fs::File::create(&path)?;
+        self.save(file)
+    }
+}
