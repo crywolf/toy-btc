@@ -32,6 +32,7 @@ pub struct PublicKey(VerifyingKey<Secp256k1>);
 pub struct PrivateKey(#[serde(with = "signkey_serde")] SigningKey<Secp256k1>);
 
 impl PrivateKey {
+    /// Generates new private key
     pub fn new_key() -> Self {
         Self(SigningKey::random(&mut rand::thread_rng()))
     }
