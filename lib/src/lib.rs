@@ -2,6 +2,7 @@ pub mod blockchain;
 pub mod crypto;
 pub mod error;
 pub mod merkle_root;
+pub mod network;
 pub mod sha256;
 
 use uint::construct_uint;
