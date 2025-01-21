@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+
 use std::io::{Error as IoError, Read, Write};
 
 use crate::{
@@ -58,8 +60,10 @@ impl Message {
     pub fn send(&self, stream: &mut impl Write) -> Result<(), ciborium::ser::Error<IoError>> {
         let bytes = self.encode()?;
         let len = bytes.len() as u64;
+
         stream.write_all(&len.to_be_bytes())?;
         stream.write_all(&bytes)?;
+
         Ok(())
     }
 
@@ -67,8 +71,36 @@ impl Message {
         let mut len_bytes = [0; 8];
         stream.read_exact(&mut len_bytes)?;
         let len = u64::from_be_bytes(len_bytes);
+
         let mut data = vec![0; len as usize];
         stream.read_exact(&mut data)?;
+
+        Self::decode(&data)
+    }
+
+    pub async fn send_async(
+        &self,
+        stream: &mut (impl AsyncWrite + Unpin),
+    ) -> Result<(), ciborium::ser::Error<IoError>> {
+        let bytes = self.encode()?;
+        let len = bytes.len() as u64;
+
+        stream.write_all(&len.to_be_bytes()).await?;
+        stream.write_all(&bytes).await?;
+
+        Ok(())
+    }
+
+    pub async fn receive_async(
+        stream: &mut (impl AsyncRead + Unpin),
+    ) -> Result<Self, ciborium::de::Error<IoError>> {
+        let mut len_bytes = [0u8; 8];
+        stream.read_exact(&mut len_bytes).await?;
+
+        let len = u64::from_be_bytes(len_bytes) as usize;
+        let mut data = vec![0u8; len];
+        stream.read_exact(&mut data).await?;
+
         Self::decode(&data)
     }
 }

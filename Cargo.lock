@@ -175,6 +175,7 @@ dependencies = [
  "sha256",
  "spki",
  "thiserror",
+ "tokio",
  "uint",
  "uuid",
 ]
