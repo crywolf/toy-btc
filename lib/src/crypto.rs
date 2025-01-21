@@ -25,8 +25,16 @@ impl Signature {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct PublicKey(VerifyingKey<Secp256k1>);
+
+impl std::fmt::Debug for PublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("PublicKey")
+            .field(&self.0.to_encoded_point(true).to_string())
+            .finish()
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PrivateKey(#[serde(with = "signkey_serde")] SigningKey<Secp256k1>);

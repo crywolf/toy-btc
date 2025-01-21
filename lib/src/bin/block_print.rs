@@ -1,7 +1,9 @@
+use std::io::Error;
+
 use btclib::blockchain::Block;
 use btclib::Saveable;
 
-fn main() {
+fn main() -> Result<(), Error> {
     let path = if let Some(arg) = std::env::args().nth(1) {
         arg
     } else {
@@ -9,8 +11,9 @@ fn main() {
         std::process::exit(1);
     };
 
-    if let Ok(file) = std::fs::File::open(path) {
-        let block = Block::load(file).expect("Failed to load block");
-        println!("{:#?}", block);
-    }
+    let file = std::fs::File::open(path)?;
+    let block = Block::load(file)?;
+    println!("{:#?}", block);
+
+    Ok(())
 }
