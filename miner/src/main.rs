@@ -79,7 +79,7 @@ impl Miner {
                     println!("Mining block with target: {}", block.header.target);
 
                     if block.header.mine(2_000_000) {
-                        println!("Block mined: {}", block.hash());
+                        println!("Block mined: {}", block.header.hash());
                         sender.send(block).expect("Failed to send mined block");
                         mining.store(false, Ordering::Relaxed);
                     }
