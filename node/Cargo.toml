@@ -4,3 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+btclib = { version = "0.1.0", path = "../lib" }
+anyhow = "1.0.95"
+argh = "0.1.13"
+tokio = { version = "1.43.0", features = ["full"] }
+uuid = { version = "1.11.0", features = ["v4"] }
+chrono = "0.4.39"
+dashmap = "6.1.0"
+static_init = "1.0.3"
