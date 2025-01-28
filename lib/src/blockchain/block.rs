@@ -41,7 +41,7 @@ impl Block {
         }
 
         let mut miner_fees = 0;
-        let mut spent_outputs = HashSet::new();
+        let mut spent_outputs = HashSet::new(); // for double-spend check
 
         // skip the coinbase transaction and verify each transaction's inputs and outputs
         for tx in self.transactions.iter().skip(1) {
@@ -134,6 +134,41 @@ impl Block {
         }
 
         Ok(())
+    }
+
+    /// Returns miner fees. It assumes that transactions are valid. (Used when creating new block template.)
+    pub fn calculate_miner_fees(&self, utxo_set: &UtxoSet) -> Result<u64> {
+        let mut miner_fees = 0;
+
+        // skip the coinbase transaction
+        for tx in self.transactions.iter().skip(1) {
+            let mut input_amount = 0;
+            let mut output_amount = 0;
+
+            for input in &tx.inputs {
+                let prev_output = if let Some(prev_output) = utxo_set
+                    .get(&input.prev_tx_output_hash)
+                    .map(|(_, output)| output)
+                {
+                    prev_output
+                } else {
+                    return Err(BtcError::InvalidTransaction(format!(
+                        "Spending output that does not exist: {}",
+                        input.prev_tx_output_hash
+                    )));
+                };
+
+                input_amount += prev_output.amount;
+            }
+
+            for output in &tx.outputs {
+                output_amount += output.amount;
+            }
+
+            miner_fees += output_amount - input_amount;
+        }
+
+        Ok(miner_fees)
     }
 }
 

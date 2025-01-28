@@ -9,7 +9,7 @@ use spki::EncodePublicKey;
 
 use crate::{sha256::Hash, Saveable};
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Signature(ECDSASignature<Secp256k1>);
 
 impl Signature {
@@ -26,7 +26,7 @@ impl Signature {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct PublicKey(VerifyingKey<Secp256k1>);
 
 // save and load as PEM

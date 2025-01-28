@@ -8,7 +8,7 @@ use crate::{
 };
 
 /// Transaction
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Tx {
     pub inputs: Vec<TxInput>,
     pub outputs: Vec<TxOutput>,
@@ -45,7 +45,7 @@ impl Saveable for Tx {
     }
 }
 /// Transaction input
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct TxInput {
     /// Hash of the transaction output, which we are linking into this transaction as input
     pub prev_tx_output_hash: Hash,
@@ -54,7 +54,7 @@ pub struct TxInput {
 }
 
 // Transaction output
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct TxOutput {
     pub amount: u64,
     /// Generated identifier that helps us ensure that the hash of each transaction output is unique, and can be used to identify it

@@ -30,6 +30,8 @@ pub const MIN_TARGET: U256 = U256([
 pub const DIFFICULTY_UPDATE_INTERVAL: u64 = 50; // 2016 blocks in real BTC
 /// Maximum mempool transaction age in seconds
 pub const MAX_MEMPOOL_TRANSACTION_AGE: u64 = 600; // 72 hours in real BTC
+/// Maximum amount of transactions allowed in a block
+pub const BLOCK_TRANSACTION_CAP: usize = 20;
 
 /// Saveable trait - save and load from file
 pub trait Saveable

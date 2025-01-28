@@ -11,11 +11,12 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    crypto::PublicKey,
     error::{BtcError, Result},
     merkle_root::MerkleRoot,
     sha256::Hash,
-    Saveable, DIFFICULTY_UPDATE_INTERVAL, IDEAL_BLOCK_TIME, MAX_MEMPOOL_TRANSACTION_AGE,
-    MIN_TARGET, U256,
+    Saveable, DIFFICULTY_UPDATE_INTERVAL, HALVING_INTERVAL, IDEAL_BLOCK_TIME, INITIAL_REWARD,
+    MAX_MEMPOOL_TRANSACTION_AGE, MIN_TARGET, U256,
 };
 
 /// UTXO set represented as HashMap where
@@ -39,14 +40,27 @@ impl Blockchain {
         }
     }
 
+    /// Returns current block height
     pub fn block_height(&self) -> u64 {
         self.blocks.len() as u64
     }
 
+    /// Returns current UTXO set
     pub fn utxo_set(&self) -> &UtxoSet {
         &self.utxo_set
     }
 
+    /// Returns an iterator over UTXOs that belong to specified public key
+    pub fn utxo_set_for_pubkey(
+        &self,
+        pubkey: PublicKey,
+    ) -> impl Iterator<Item = (&Hash, &(bool, TxOutput))> {
+        self.utxo_set
+            .iter()
+            .filter(move |(_, (_, txout))| txout.pubkey == pubkey)
+    }
+
+    /// Returns current difficulty target
     pub fn target(&self) -> U256 {
         self.target
     }
@@ -61,7 +75,7 @@ impl Blockchain {
         self.blocks.iter()
     }
 
-    /// Validates and adds new block to he blockchain
+    /// Validates and adds new block to the blockchain
     pub fn add_block(&mut self, block: Block) -> Result<()> {
         // check if the block is valid
 
@@ -78,21 +92,22 @@ impl Blockchain {
             // block's prev_block_hash is the hash of the last block
             let last_block = self.blocks.last().expect("Previous block must exist");
 
-            if block.header.prev_block_hash != last_block.hash() {
+            if block.header.prev_block_hash != last_block.header.hash() {
+                dbg!(block.header.prev_block_hash, last_block.header.hash());
                 return Err(BtcError::InvalidBlock(
                     "Previous block hash mismatch".to_string(),
                 ));
             }
 
             // check if the block's hash is less than the target
-            if !block.hash().matches_target(last_block.header.target) {
+            if !block.header.hash().matches_target(last_block.header.target) {
                 return Err(BtcError::InvalidBlock(
                     "Block hash does not match target".to_string(),
                 ));
             }
 
             // check if the block's Merkle root is correct
-            if block.header.merkle_root != MerkleRoot::calculate(&last_block.transactions) {
+            if block.header.merkle_root != MerkleRoot::calculate(&block.transactions) {
                 return Err(BtcError::InvalidMerkleRoot);
             }
 
@@ -188,7 +203,7 @@ impl Blockchain {
         self.target = new_target.min(MIN_TARGET);
     }
 
-    /// Adds a transaction to the mempool
+    /// Validates and adds new transaction to the mempool
     pub fn add_to_mempool(&mut self, tx: Tx) -> Result<()> {
         // validate transaction before insertion
 
@@ -297,6 +312,13 @@ impl Blockchain {
         });
 
         Ok(())
+    }
+
+    /// Calculates block subsidy
+    pub fn calculate_block_reward(&self) -> u64 {
+        let block_height = self.block_height();
+        let halvings = block_height / HALVING_INTERVAL;
+        (INITIAL_REWARD * 10u64.pow(8)) >> halvings
     }
 
     /// Removes transactions older than `MAX_MEMPOOL_TRANSACTION_AGE`
