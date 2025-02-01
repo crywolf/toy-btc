@@ -1,6 +1,15 @@
 [package]
-name = "wallet"
+name = "good-wallet"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+btclib = { version = "0.1.0", path = "../lib" }
+anyhow = "1.0.95"
+clap = { version = "4.5.27", features = ["derive"] }
+crossbeam-skiplist = "0.1.3"
+kanal = "0.1.0-pre8"
+serde = { version = "1.0.217", features = ["derive"] }
+tokio = { version = "1.43.0", features = ["full"] }
+toml = "0.8.19"
+uuid = { version = "1.12.1", features = ["v4", "serde"] }
