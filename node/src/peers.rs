@@ -92,7 +92,6 @@ pub async fn find_longest_chain_node() -> Result<Option<(String, u32)>> {
 }
 
 pub async fn download_blockchain(node: &str, count: u32) -> Result<()> {
-    dbg!(node);
     let mut stream = NODES.get_mut(node).expect("node name exists");
 
     for i in 0..count as usize {

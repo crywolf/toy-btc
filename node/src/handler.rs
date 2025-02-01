@@ -117,6 +117,8 @@ pub async fn handle_connection(mut stream: TcpStream) {
                     return;
                 }
 
+                blockchain.rebuild_utxo_set();
+
                 // send new block to all known nodes
                 let nodes = NODES.iter().map(|n| n.key().clone()).collect::<Vec<_>>();
                 for node in nodes {
