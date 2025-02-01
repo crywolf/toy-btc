@@ -92,7 +92,7 @@ impl Block {
                 ));
             }
 
-            miner_fees += output_amount - input_amount;
+            miner_fees += input_amount - output_amount;
         }
 
         self.verify_coinbase_transaction(predicted_block_height, miner_fees)?;
@@ -165,7 +165,7 @@ impl Block {
                 output_amount += output.amount;
             }
 
-            miner_fees += output_amount - input_amount;
+            miner_fees += input_amount - output_amount;
         }
 
         Ok(miner_fees)

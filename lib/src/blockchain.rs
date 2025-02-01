@@ -93,7 +93,6 @@ impl Blockchain {
             let last_block = self.blocks.last().expect("Previous block must exist");
 
             if block.header.prev_block_hash != last_block.header.hash() {
-                dbg!(block.header.prev_block_hash, last_block.header.hash());
                 return Err(BtcError::InvalidBlock(
                     "Previous block hash mismatch".to_string(),
                 ));
