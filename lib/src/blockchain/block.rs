@@ -122,7 +122,7 @@ impl Block {
             ));
         }
 
-        let block_reward = INITIAL_REWARD * 10u64.pow(8)
+        let block_reward = crate::btc_to_sats(INITIAL_REWARD)
             / 2u64.pow((predicted_block_height / HALVING_INTERVAL) as u32);
 
         let total_coinbase_amount: u64 = coinbase_tx.outputs.iter().map(|o| o.amount).sum();

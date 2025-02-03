@@ -33,6 +33,16 @@ pub const MAX_MEMPOOL_TRANSACTION_AGE: u64 = 600; // 72 hours in real BTC
 /// Maximum amount of transactions allowed in a block
 pub const BLOCK_TRANSACTION_CAP: usize = 20;
 
+/// Convert bitcoins to sats
+pub fn btc_to_sats(btc: u64) -> u64 {
+    btc * 10u64.pow(8)
+}
+
+/// Convert sats to bitcoins
+pub fn sats_to_btc(sats: u64) -> f64 {
+    sats as f64 / 100_000_000.0
+}
+
 /// Saveable trait - save and load from file
 pub trait Saveable
 where

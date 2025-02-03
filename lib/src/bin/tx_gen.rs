@@ -18,7 +18,7 @@ fn main() {
     let inputs = vec![];
     let outputs = vec![TxOutput {
         unique_id: Uuid::new_v4(),
-        amount: btclib::INITIAL_REWARD * 10u64.pow(8),
+        amount: btclib::btc_to_sats(btclib::INITIAL_REWARD),
         pubkey: private_key.public_key(),
     }];
 
