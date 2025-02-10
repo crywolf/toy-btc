@@ -7,27 +7,29 @@ use btclib::crypto::{PrivateKey, PublicKey, Signature};
 use btclib::network::Message;
 use btclib::Saveable;
 use config::{Config, FeeType};
-use kanal::AsyncSender;
+use kanal::Sender;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
+use tracing::{debug, error, info};
 use utxo::UtxoStore;
 
 use std::path::PathBuf;
 
-/// Key pair
+/// Key pair with paths to public and private keys
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Key {
-    public: PathBuf,
-    private: PathBuf,
+    pub public: PathBuf,
+    pub private: PathBuf,
 }
 
+/// Loaded key pair with actual public and private keys
 #[derive(Clone)]
 struct LoadedKey {
     public: PublicKey,
     private: PrivateKey,
 }
 
-/// Pair of name and public key used in contact list
+/// Pair of name and path to the public key used in contact list
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Recipient {
     /// Recipient's name
@@ -57,14 +59,16 @@ impl Recipient {
     }
 }
 
+/// Core functionality of the wallet
 pub struct Core {
     pub config: Config,
     utxos: UtxoStore,
     node_conn: tokio::sync::Mutex<TcpStream>,
-    pub tx_sender: AsyncSender<Tx>,
+    pub tx_sender: Sender<Tx>,
 }
 
 impl Core {
+    /// Create a new `Core` instance
     async fn new(config: Config, utxos: UtxoStore) -> Result<Self> {
         let (tx_sender, _) = kanal::bounded(10);
 
@@ -76,18 +80,20 @@ impl Core {
             node_conn: tokio::sync::Mutex::new(stream),
             config,
             utxos,
-            tx_sender: tx_sender.clone_async(),
+            tx_sender: tx_sender.clone(),
         })
     }
 
     /// Loads config file and configures `Core` accordingly
     pub async fn load(config_path: PathBuf) -> Result<Self> {
+        info!("Loading core from config: {}", config_path.display());
         let config = Config::load_from_file(config_path).context("load config from file")?;
 
         let mut utxos = UtxoStore::new();
 
         // Load keys from config
         for key in &config.my_keys {
+            debug!("Loading key pair: {:?}", key.public);
             let public = PublicKey::load_from_file(&key.public)
                 .with_context(|| format!("load PublicKey from file '{}'", key.public.display()))?;
 
@@ -101,7 +107,22 @@ impl Core {
         Core::new(config, utxos).await
     }
 
+    /// Returns sender's private key for specified public key
+    pub fn my_privkey(&self, pubkey: &PublicKey) -> Result<&PrivateKey> {
+        let my_privkey = &self
+            .utxos
+            .my_keys
+            .iter()
+            .find(|k| k.public == *pubkey)
+            .ok_or(anyhow::anyhow!("Public key not found"))?
+            .private;
+
+        Ok(my_privkey)
+    }
+
+    /// Fetches UTXOs from the node for all loaded keys
     pub async fn fetch_utxos(&self) -> Result<()> {
+        debug!("Fetching UTXOs from node: {}", self.config.default_node);
         for key in &self.utxos.my_keys {
             let mut stream_lock = self.node_conn.lock().await;
 
@@ -114,6 +135,7 @@ impl Core {
                 .await
                 .context("receive message")?
             {
+                debug!("Received {} UTXOs for key: {:?}", utxos.len(), key.public);
                 // Replace the entire UTXO set for this key
                 self.utxos.utxos.insert(
                     key.public.clone(),
@@ -123,26 +145,51 @@ impl Core {
                         .collect(),
                 );
             } else {
+                error!("Unexpected response from node");
                 anyhow::bail!("Unexpected response from node");
             }
         }
+        info!("UTXOs fetched successfully");
         Ok(())
     }
 
+    /// Sends a transaction to the node
     pub async fn send_transaction(&self, transaction: Tx) -> Result<()> {
+        debug!("Sending transaction to node: {}", self.config.default_node);
         let mut stream_lock = self.node_conn.lock().await;
         Message::SubmitTransaction(transaction)
             .send_async(&mut *stream_lock)
             .await
             .context("send SubmitTransaction message")?;
+
+        info!("Transaction sent successfully");
         Ok(())
     }
 
-    pub async fn create_transaction(
-        &self,
-        recipient_pubkey: &PublicKey,
-        amount: u64,
-    ) -> Result<Tx> {
+    /// Prepares and sends a transaction asynchronously.
+    /// We are not actually sending a transaction via Rust’s async here, but rather,
+    /// we are sending it into the asynchronous part of the application.
+    pub fn send_transaction_async(&self, recipient: &str, amount: u64) -> Result<()> {
+        info!("Preparing to send {} asats to {}", amount, recipient);
+        let recipient_pubkey = self
+            .config
+            .recipient_pubkey(recipient)
+            .context("get recipient's pubkey")?;
+
+        let transaction = self.create_transaction(&recipient_pubkey, amount)?;
+        debug!("Sending transaction asynchronously");
+        self.tx_sender
+            .send(transaction)
+            .context("send transaction to async part of the app")?;
+        Ok(())
+    }
+
+    /// Creates new transaction
+    pub fn create_transaction(&self, recipient_pubkey: &PublicKey, amount: u64) -> Result<Tx> {
+        debug!(
+            "Creating transaction for {} sats to {:?}",
+            amount, recipient_pubkey
+        );
         let fee = self.calculate_fee(amount);
         let total_amount = amount + fee;
 
@@ -155,12 +202,8 @@ impl Core {
             let utxos = entry.value();
 
             let my_privkey = &self
-                .utxos
-                .my_keys
-                .iter()
-                .find(|k| k.public == *my_pubkey)
-                .unwrap()
-                .private;
+                .my_privkey(my_pubkey)
+                .context("get sender's private key")?;
 
             // iterate over UTXOs for one pubkey
             for (marked, utxo) in utxos.iter() {
@@ -184,6 +227,10 @@ impl Core {
         }
 
         if input_sum < total_amount {
+            error!(
+                "Insufficient funds: have {} sats, need {} sats",
+                input_sum, total_amount
+            );
             anyhow::bail!("Insufficient funds");
         }
 
@@ -202,6 +249,7 @@ impl Core {
             });
         }
 
+        info!("Transaction created successfully");
         Ok(Tx::new(inputs, outputs))
     }
 
@@ -215,9 +263,12 @@ impl Core {
     }
 
     fn calculate_fee(&self, amount: u64) -> u64 {
-        match self.config.fee_config.fee_type {
+        let fee = match self.config.fee_config.fee_type {
             FeeType::Fixed => self.config.fee_config.value as u64,
             FeeType::Percent => (amount as f64 * self.config.fee_config.value / 100.0) as u64,
-        }
+        };
+
+        debug!("Calculated fee: {} sats", fee);
+        fee
     }
 }

@@ -13,3 +13,8 @@ serde = { version = "1.0.217", features = ["derive"] }
 tokio = { version = "1.43.0", features = ["full"] }
 toml = "0.8.19"
 uuid = { version = "1.12.1", features = ["v4", "serde"] }
+text-to-ascii-art = "0.1.10"
+cursive = "0.21.1"
+tracing = "0.1.41"
+tracing-appender = "0.2.3"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt"] }

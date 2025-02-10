@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use btclib::crypto::PublicKey;
 use serde::{Deserialize, Serialize};
 
 use super::{Key, Recipient};
@@ -63,6 +64,7 @@ pub struct Config {
 }
 
 impl Config {
+    /// Loads config from file
     pub fn load_from_file(path: impl AsRef<std::path::Path>) -> Result<Self> {
         let config_str = std::fs::read_to_string(&path)
             .with_context(|| format!("read config file '{}'", path.as_ref().display()))?;
@@ -74,5 +76,19 @@ impl Config {
         }
 
         Ok(config)
+    }
+
+    /// Returns recipient's public key
+    pub fn recipient_pubkey(&self, name: &str) -> Result<PublicKey> {
+        let key = self
+            .contacts
+            .iter()
+            .find(|r| r.name == name)
+            .ok_or_else(|| anyhow::anyhow!("Recipient not found"))?
+            .load()
+            .context("load recipient key")?
+            .key;
+
+        Ok(key)
     }
 }

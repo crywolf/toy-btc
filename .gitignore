@@ -2,3 +2,4 @@
 *.cbor
 *.pem
 .wallets/
+logs/
