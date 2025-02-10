@@ -228,8 +228,9 @@ impl Blockchain {
 
         // To replace older transactions with newer transactions that reference the same inputs (to prevent a potential double-spending problem):
         //   Check if any of the UTXOs have the bool mark set to true and if so, find the transaction
-        //   that references them in the mempool, remove it, and set all the UTXOs it references to false
-        // TODO: remove the transaction with smaller fee, not the older one
+        //   that references them in the mempool, remove it (only if the miner fee in the older tx is smaller than in the tx we want to insert),
+        //   and set all the UTXOs it references to false.
+        //   If the fee in the newer tx we want to insert is smaller than the older tx, do not insert it.
         for input in &tx.inputs {
             if let Some((true, _)) = self.utxo_set.get(&input.prev_tx_output_hash) {
                 // this UTXO is marked 'true' => it has already been marked by another transaction in the mempool,
@@ -239,8 +240,18 @@ impl Blockchain {
                         .iter()
                         .any(|output| output.hash() == input.prev_tx_output_hash)
                 });
+
                 // if we have found such transaction, unmark all of its UTXOs
                 if let Some((idx, (_, referencing_tx))) = referencing_tx {
+                    let referencing_tx_fee = referencing_tx.fee(&self.utxo_set)?;
+                    let tx_fee = tx.fee(&self.utxo_set)?;
+
+                    if referencing_tx_fee > tx_fee {
+                        // "do not insert the tx because it has lower fee than teh older one"
+                        return Ok(());
+                    }
+                    // "remove the older tx"
+
                     for input in &referencing_tx.inputs {
                         // set all UTXOs from this transaction to false
                         self.utxo_set
@@ -294,21 +305,8 @@ impl Blockchain {
         self.mempool.push((Utc::now(), tx));
 
         // sort mempool by fee size
-        self.mempool.sort_by_key(|(_, tx)| {
-            let tx_inputs: u64 = tx
-                .inputs
-                .iter()
-                .map(|input| {
-                    self.utxo_set
-                        .get(&input.prev_tx_output_hash)
-                        .expect("prevout hash should be present")
-                        .1
-                        .amount
-                })
-                .sum();
-            let tx_outputs: u64 = tx.outputs.iter().map(|output| output.amount).sum();
-            tx_inputs - tx_outputs // miner fee
-        });
+        self.mempool
+            .sort_by_key(|(_, tx)| tx.fee(&self.utxo_set).expect("transaction is valid"));
 
         Ok(())
     }

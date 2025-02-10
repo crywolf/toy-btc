@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use super::UtxoSet;
 use crate::{
     crypto::{PublicKey, Signature},
+    error::{BtcError, Result},
     sha256::Hash,
     Saveable,
 };
@@ -17,6 +19,26 @@ pub struct Tx {
 impl Tx {
     pub fn new(inputs: Vec<TxInput>, outputs: Vec<TxOutput>) -> Self {
         Self { inputs, outputs }
+    }
+
+    /// Calculates miner fee
+    pub fn fee(&self, utxo_set: &UtxoSet) -> Result<u64> {
+        let tx_inputs: u64 = self
+            .inputs
+            .iter()
+            .map(|input| {
+                Ok(utxo_set
+                    .get(&input.prev_tx_output_hash)
+                    .ok_or(BtcError::InvalidTxInput)?
+                    .1
+                    .amount)
+            })
+            .filter_map(|result: Result<u64>| result.ok())
+            .sum();
+
+        let tx_outputs: u64 = self.outputs.iter().map(|output| output.amount).sum();
+
+        Ok(tx_inputs - tx_outputs) // miner fee
     }
 
     pub fn hash(&self) -> Hash {
