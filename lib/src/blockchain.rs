@@ -317,7 +317,7 @@ impl Blockchain {
     pub fn calculate_block_reward(&self) -> u64 {
         let block_height = self.block_height();
         let halvings = block_height / HALVING_INTERVAL;
-        crate::btc_to_sats(INITIAL_REWARD) >> halvings
+        crate::btc_to_sats(INITIAL_REWARD as f64) >> halvings
     }
 
     /// Removes transactions older than `MAX_MEMPOOL_TRANSACTION_AGE`

@@ -5,6 +5,7 @@ pub mod merkle_root;
 pub mod network;
 pub mod sha256;
 
+use bigdecimal::{BigDecimal, FromPrimitive, ToPrimitive};
 use uint::construct_uint;
 
 // Unsigned 256-bit integer consisting of 4 x 64-bit words (little-endian)
@@ -34,13 +35,15 @@ pub const MAX_MEMPOOL_TRANSACTION_AGE: u64 = 600; // 72 hours in real BTC
 pub const BLOCK_TRANSACTION_CAP: usize = 20;
 
 /// Convert bitcoins to sats
-pub fn btc_to_sats(btc: u64) -> u64 {
-    btc * 10u64.pow(8)
+pub fn btc_to_sats(btc: f64) -> u64 {
+    (btc * (10u64.pow(8) as f64)) as u64
 }
 
 /// Convert sats to bitcoins
 pub fn sats_to_btc(sats: u64) -> f64 {
-    sats as f64 / 100_000_000.0
+    let sats = BigDecimal::from_u64(sats).unwrap();
+    let sats_per_btc = BigDecimal::from_f64(100_000_000.0).unwrap();
+    (sats / sats_per_btc).to_f64().unwrap()
 }
 
 /// Saveable trait - save and load from file
@@ -58,5 +61,20 @@ where
     fn save_to_file<P: AsRef<std::path::Path>>(&self, path: P) -> std::io::Result<()> {
         let file = std::fs::File::create(&path)?;
         self.save(file)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_btc_to_sats() {
+        assert_eq!(btc_to_sats(6.25), 625000000);
+    }
+
+    #[test]
+    fn test_sats_to_btc() {
+        assert_eq!(sats_to_btc(625000000), 6.25);
     }
 }

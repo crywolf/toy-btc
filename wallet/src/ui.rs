@@ -18,11 +18,10 @@ enum Unit {
 }
 
 /// Convert an amount between BTC and Satoshi units
-/// TODO: use bigdecimal crate
 fn convert_amount(amount: f64, from: Unit, to: Unit) -> f64 {
     match (from, to) {
-        (Unit::Btc, Unit::Sats) => amount * 100_000_000.0,
-        (Unit::Sats, Unit::Btc) => amount / 100_000_000.0,
+        (Unit::Btc, Unit::Sats) => btclib::btc_to_sats(amount) as f64,
+        (Unit::Sats, Unit::Btc) => btclib::sats_to_btc(amount as u64),
         _ => amount,
     }
 }
