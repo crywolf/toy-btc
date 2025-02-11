@@ -74,7 +74,7 @@ impl Core {
 
         let stream = TcpStream::connect(&config.default_node)
             .await
-            .with_context(|| format!("connect to default node {}", config.default_node))?;
+            .with_context(|| format!("connect to node {}", config.default_node))?;
 
         Ok(Self {
             node_conn: tokio::sync::Mutex::new(stream),
@@ -85,9 +85,14 @@ impl Core {
     }
 
     /// Loads config file and configures `Core` accordingly
-    pub async fn load(config_path: PathBuf) -> Result<Self> {
+    pub async fn load(config_path: PathBuf, node: Option<String>) -> Result<Self> {
         info!("Loading core from config: {}", config_path.display());
-        let config = Config::load_from_file(config_path).context("load config from file")?;
+        let mut config = Config::load_from_file(config_path).context("load config from file")?;
+
+        if let Some(node) = node {
+            info!("Overriding default node with: {}", node);
+            config.default_node = node;
+        }
 
         let mut utxos = UtxoStore::new();
 

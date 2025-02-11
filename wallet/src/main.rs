@@ -59,14 +59,10 @@ async fn main() -> Result<()> {
     }
 
     info!("Loading config from: {:?}", config_path);
-    let mut core = Core::load(config_path.clone())
+
+    let mut core = Core::load(config_path.clone(), cli.node)
         .await
         .context("load Core object")?;
-
-    if let Some(node) = cli.node {
-        info!("Overriding default node with: {}", node);
-        core.config.default_node = node;
-    }
 
     let (tx_sender, tx_receiver) = kanal::bounded(10);
     core.tx_sender = tx_sender;
