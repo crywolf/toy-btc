@@ -8,7 +8,7 @@ use crate::{
     crypto::PublicKey,
 };
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, strum::Display)]
 /// Network message
 pub enum Message {
     /// Fetch all UTXOs belonging to a public key

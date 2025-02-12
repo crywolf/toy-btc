@@ -18,3 +18,4 @@ uint = "0.10.0"
 uuid = { version = "1.11.0", features = ["v4", "serde"] }
 spki = "0.7.3"
 tokio = { version = "1.43.0", features = ["net"] }
+strum = { version = "0.27", features = ["derive"] }

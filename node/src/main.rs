@@ -2,12 +2,12 @@ mod blockchain;
 mod handler;
 mod peers;
 
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
 use argh::FromArgs;
 use blockchain::BLOCKCHAIN;
-use tokio::net::TcpListener;
+use tokio::{net::TcpListener, sync::Mutex};
 
 #[derive(FromArgs)]
 /// A toy bitcoin node
@@ -30,12 +30,15 @@ async fn main() -> Result<()> {
 
     let port = args.port;
     let blockchain_file = args.blockchain_file;
-    let nodes = args.nodes;
+    let node_addrs = args.nodes;
 
-    peers::populate_connections(&nodes)
+    let peers = peers::Peers::new();
+
+    peers
+        .populate_connections(&node_addrs)
         .await
         .context("populate connections")?;
-    println!("total amount of known peer nodes: {}", peers::NODES.len());
+    println!("total amount of known peer nodes: {}", peers.count());
 
     // Check if the blockchain_file exists
     if Path::new(&blockchain_file).exists() {
@@ -45,13 +48,15 @@ async fn main() -> Result<()> {
             .context("load blockchain")?;
     } else {
         println!("blockchain file does not exist!");
-        if !nodes.is_empty() {
-            if let Some((longest_name, longest_count)) = peers::find_longest_chain_node()
+        if !node_addrs.is_empty() {
+            if let Some((longest_name, longest_count)) = peers
+                .find_longest_chain_node()
                 .await
                 .context("find node with longest chain")?
             {
                 // request the blockchain from the node with the longest blockchain
-                peers::download_blockchain(&longest_name, longest_count)
+                peers
+                    .download_blockchain(&longest_name, longest_count)
                     .await
                     .with_context(|| format!("download blockchain from {longest_name}"))?;
                 println!("blockchain downloaded from {}", longest_name);
@@ -66,8 +71,9 @@ async fn main() -> Result<()> {
                     let mut blockchain = BLOCKCHAIN.write().await;
                     blockchain.try_adjust_target();
                 }
+            } else {
+                println!("peers do not have any blocks yet, starting with empty blockchain");
             }
-            println!("peers do not have any blocks yet, starting with empty blockchain");
         } else {
             println!("no initial nodes provided, starting as a seed node");
         }
@@ -83,8 +89,10 @@ async fn main() -> Result<()> {
     // and a task to periodically save the blockchain
     tokio::spawn(blockchain::save(blockchain_file.clone()));
 
+    let nodes = Arc::new(Mutex::new(peers));
+
     loop {
         let (socket, _) = listener.accept().await?;
-        tokio::spawn(handler::handle_connection(socket));
+        tokio::spawn(handler::handle_connection(Arc::clone(&nodes), socket));
     }
 }

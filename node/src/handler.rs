@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use btclib::blockchain::{Block, BlockHeader, Tx, TxOutput};
 use btclib::merkle_root::MerkleRoot;
@@ -6,12 +7,13 @@ use btclib::network::Message;
 use btclib::sha256::Hash;
 use chrono::Utc;
 use tokio::net::TcpStream;
+use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::blockchain::BLOCKCHAIN;
-use crate::peers::NODES;
+use crate::peers::Peers;
 
-pub async fn handle_connection(mut stream: TcpStream) {
+pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) {
     loop {
         // read a message from the socket
         let message = match Message::receive_async(&mut stream).await {
@@ -28,6 +30,7 @@ pub async fn handle_connection(mut stream: TcpStream) {
                 println!("I am neither a miner nor a wallet! Terminating connection.");
                 return;
             }
+
             FetchBlock(height) => {
                 let blockchain = BLOCKCHAIN.read().await;
                 let Some(block) = blockchain.blocks().nth(height).cloned() else {
@@ -39,14 +42,18 @@ pub async fn handle_connection(mut stream: TcpStream) {
                     .await
                     .map_err(log_error);
             }
-            DiscoverNodes => {
-                let nodes = NODES.iter().map(|x| x.key().clone()).collect::<Vec<_>>();
 
-                let _ = NodeList(nodes)
+            DiscoverNodes => {
+                // return list af all connected nodes
+                let node_addrs = nodes.lock().await.addresses();
+
+                println!("sending list of all known nodes {}", node_addrs.len());
+                let _ = NodeList(node_addrs)
                     .send_async(&mut stream)
                     .await
                     .map_err(log_error);
             }
+
             AskDifference(height) => {
                 let blockchain = BLOCKCHAIN.read().await;
                 let count = blockchain.block_height() as i32 - height as i32;
@@ -70,22 +77,42 @@ pub async fn handle_connection(mut stream: TcpStream) {
                     .await
                     .map_err(log_error);
             }
-            NewBlock(block) => {
+
+            NewBlock(ref block) => {
                 println!("new block from a peer");
                 let mut blockchain = BLOCKCHAIN.write().await;
-                if let Err(e) = blockchain.add_block(block) {
+                if let Err(e) = blockchain.add_block(block.clone()) {
                     println!("block rejected: {e}");
+                } else {
+                    println!("new block added to blockchain");
+                    blockchain.rebuild_utxo_set();
+                    // broadcast the received block to all known nodes
+                    let _ = nodes
+                        .lock()
+                        .await
+                        .broadcast(&message)
+                        .await
+                        .map_err(log_error);
                 }
             }
-            NewTransaction(tx) => {
+
+            NewTransaction(ref tx) => {
                 println!("new transaction from peer, adding to mempool");
                 let mut blockchain = BLOCKCHAIN.write().await;
-                if let Err(e) = blockchain.add_to_mempool(tx) {
+                if let Err(e) = blockchain.add_to_mempool(tx.clone()) {
                     println!("transaction rejected: {e}, closing connection");
                     return;
+                } else {
+                    // broadcast the received transaction to all known nodes
+                    let _ = nodes
+                        .lock()
+                        .await
+                        .broadcast(&message)
+                        .await
+                        .map_err(log_error);
                 }
-                // TODO send this new tx to other connected peers + prevent sending txs back to the source node (dtto with blocks)
             }
+
             ValidateTemplate(block_template) => {
                 let blockchain = BLOCKCHAIN.read().await;
                 // does the template point to the last block?
@@ -109,6 +136,7 @@ pub async fn handle_connection(mut stream: TcpStream) {
                     .await
                     .map_err(log_error);
             }
+
             SubmitTemplate(block) => {
                 println!("received newly mined template from a miner");
                 let mut blockchain = BLOCKCHAIN.write().await;
@@ -119,43 +147,38 @@ pub async fn handle_connection(mut stream: TcpStream) {
 
                 blockchain.rebuild_utxo_set();
 
-                // send new block to all known nodes
-                let nodes = NODES.iter().map(|n| n.key().clone()).collect::<Vec<_>>();
-                for node in nodes {
-                    if let Some(mut node_stream) = NODES.get_mut(&node) {
-                        let _ = Message::NewBlock(block.clone())
-                            .send_async(&mut *node_stream)
-                            .await
-                            .map_err(|e| {
-                                println!("failed to send block to {}", node);
-                                log_error(e)
-                            });
-                    }
-                }
-                println!("new block sent to all connected nodes")
+                // broadcast newly mined block to all known nodes
+                let message = Message::NewBlock(block);
+
+                let nodes = nodes.lock().await;
+                let _ = nodes.broadcast(&message).await.map_err(log_error);
+
+                println!(
+                    "new block broadcasted to connected nodes ({})",
+                    nodes.count()
+                )
             }
+
             SubmitTransaction(tx) => {
                 println!("new transaction was submitted");
                 let mut blockchain = BLOCKCHAIN.write().await;
                 if let Err(e) = blockchain.add_to_mempool(tx.clone()) {
                     println!("transaction rejected: {e}, closing connection");
                 }
-                println!("added transaction to mempool");
-                // send the transaction to all known nodes
-                let nodes = NODES.iter().map(|n| n.key().clone()).collect::<Vec<_>>();
-                for node in nodes {
-                    if let Some(mut node_stream) = NODES.get_mut(&node) {
-                        let _ = Message::NewTransaction(tx.clone())
-                            .send_async(&mut *node_stream)
-                            .await
-                            .map_err(|e| {
-                                println!("failed to send transaction to {}", node);
-                                log_error(e)
-                            });
-                    }
-                }
-                println!("transaction sent to all connected nodes")
+                println!("new transaction was added to mempool");
+
+                // broadcast the transaction to all known nodes
+                let message = Message::NewTransaction(tx);
+
+                let nodes = nodes.lock().await;
+                let _ = nodes.broadcast(&message).await.map_err(log_error);
+
+                println!(
+                    "transaction broadcasted to connected nodes ({})",
+                    nodes.count()
+                )
             }
+
             FetchTemplate(public_key) => {
                 let blockchain = BLOCKCHAIN.read().await;
 
