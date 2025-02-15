@@ -24,4 +24,6 @@ pub enum BtcError {
     InvalidPublicKey,
     #[error("Invalid private key")]
     InvalidPrivateKey,
+    #[error("Transaction is already in mempool: {0}")]
+    TxAlreadyInMempool(crate::sha256::Hash),
 }

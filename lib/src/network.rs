@@ -11,6 +11,10 @@ use crate::{
 #[derive(Debug, Clone, Deserialize, Serialize, strum::Display)]
 /// Network message
 pub enum Message {
+    // Subscribe to node to receive messages
+    Subscribe(String),
+    /// Confirm subscription
+    SubscribeAck(String),
     /// Fetch all UTXOs belonging to a public key
     FetchUTXOs(PublicKey),
     /// UTXOs belonging to a public key. Bool determines if marked

@@ -206,6 +206,12 @@ impl Blockchain {
     pub fn add_to_mempool(&mut self, tx: Tx) -> Result<()> {
         // validate transaction before insertion
 
+        // reject transactions already present in mempool
+        let tx_hash = tx.hash();
+        if self.mempool.iter().any(|x| x.1.hash() == tx_hash) {
+            return Err(BtcError::TxAlreadyInMempool(tx_hash));
+        }
+
         // all inputs in tx must match known UTXOs, and must be unique (to prevent double-spend within a single tx)
         let mut seen_inputs = HashSet::new();
         for input in &tx.inputs {

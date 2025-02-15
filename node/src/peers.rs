@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use anyhow::{anyhow, Context, Result};
 use btclib::network::Message;
 use dashmap::DashMap;
@@ -5,14 +7,29 @@ use tokio::net::TcpStream;
 
 /// Connected peer nodes
 pub struct Peers {
-    nodes: DashMap<String, TcpStream>,
+    listener_addr: String,
+
+    /// DashMap<target_addr, (TcpStream>,  Option<skip_source_addr>)>
+    nodes: DashMap<String, (TcpStream, Option<String>)>,
 }
 
 impl Peers {
-    pub fn new() -> Self {
+    pub fn new(port: u16) -> Self {
         Self {
+            listener_addr: format!("localhost:{}", port),
             nodes: DashMap::new(),
         }
+    }
+
+    pub fn listener_addr(&self) -> &str {
+        &self.listener_addr
+    }
+
+    pub fn add(&self, addr: &str, stream: TcpStream, skip_source_addr: &str) {
+        self.nodes.insert(
+            addr.to_string(),
+            (stream, Some(skip_source_addr.to_string())),
+        );
     }
 
     /// Returns number of connected nodes
@@ -28,14 +45,32 @@ impl Peers {
             .collect::<Vec<_>>()
     }
 
-    /// Sends message to all connected nodes and returns error containing information about all encountered failures if any
-    pub async fn broadcast(&self, msg: &Message) -> Result<()> {
+    pub fn update_skip_addr(&mut self, peer_addr: &str, skip_source_addr: &str) {
+        self.nodes
+            .entry(peer_addr.to_string())
+            .and_modify(|(_, skip)| *skip = Some(skip_source_addr.to_string()));
+    }
+
+    /// Sends message to all connected nodes (skips optional `source_addr`).
+    /// Returns error containing information about all encountered failures if any
+    pub async fn broadcast(&self, msg: &Message, source_addr: Option<&SocketAddr>) -> Result<()> {
         let mut errors = Vec::new();
         let mut remove = Vec::new();
 
         for mut item in self.nodes.iter_mut() {
             let node = item.key().clone();
-            let stream = item.value_mut();
+            let (stream, skip_addr) = item.value_mut();
+
+            // do not send the message back to the source
+            if let Some(source_addr) = source_addr {
+                let source_addr = &source_addr.to_string().replace("127.0.0.1", "localhost");
+
+                if let Some(skip_addr) = skip_addr {
+                    if source_addr == skip_addr {
+                        continue;
+                    }
+                }
+            }
 
             println!("broadcasting {msg} to node {node}");
 
@@ -47,7 +82,7 @@ impl Peers {
                 errors.push(format!("{}: {}", err, err.root_cause()));
                 remove.push(node);
             } else {
-                println!("{msg} sent to node {node}");
+                println!("{msg} succesfully sent to node {node}");
             }
         }
 
@@ -63,6 +98,23 @@ impl Peers {
         Ok(())
     }
 
+    /// Sends subscription message to all connected nodes
+    pub async fn subscribe_to_nodes(&self) -> Result<()> {
+        for mut item in self.nodes.iter_mut() {
+            let node = item.key().clone();
+            let (stream, _) = item.value_mut();
+
+            let message = Message::Subscribe(self.listener_addr.clone());
+            println!("<-- sending {message:?} to {node}");
+            message
+                .send_async(stream)
+                .await
+                .context("send Subscribe message")?;
+        }
+        Ok(())
+    }
+
+    /// Discovers and connects to other nodes
     pub async fn populate_connections(&self, nodes: &[String]) -> Result<()> {
         println!("trying to connect to other nodes...");
 
@@ -89,9 +141,9 @@ impl Peers {
                     for child_node in child_nodes {
                         println!("adding node {}", child_node);
                         let new_stream = TcpStream::connect(&child_node).await?;
-                        self.nodes.insert(child_node, new_stream);
+                        self.nodes.insert(child_node, (new_stream, None));
                     }
-                    self.nodes.insert(node.clone(), stream);
+                    self.nodes.insert(node.clone(), (stream, None));
                 }
                 _ => {
                     eprintln!("unexpected message from {}", node);
@@ -115,19 +167,22 @@ impl Peers {
 
         for node in all_nodes {
             println!("asking {} for blockchain length", node);
-            let mut stream = self
+
+            let mut entry = self
                 .nodes
                 .get_mut(&node)
                 .context("missing node in the pool")?;
 
+            let (ref mut stream, _) = entry.value_mut();
+
             let message = Message::AskDifference(0);
             message
-                .send_async(&mut *stream)
+                .send_async(stream)
                 .await
                 .context("send AskDifference message")?;
             println!("sent AskDifference to {}", node);
 
-            let message = Message::receive_async(&mut *stream)
+            let message = Message::receive_async(stream)
                 .await
                 .context("receive message")?;
 
@@ -154,16 +209,17 @@ impl Peers {
     }
 
     pub async fn download_blockchain(&self, node: &str, count: u32) -> Result<()> {
-        let mut stream = self.nodes.get_mut(node).expect("node name exists");
+        let mut entry = self.nodes.get_mut(node).expect("node name exists");
+        let (ref mut stream, _) = entry.value_mut();
 
         for i in 0..count as usize {
             let message = Message::FetchBlock(i);
             message
-                .send_async(&mut *stream)
+                .send_async(stream)
                 .await
                 .with_context(|| format!("send FetchBlock({i}) message"))?;
 
-            let message = Message::receive_async(&mut *stream)
+            let message = Message::receive_async(stream)
                 .await
                 .context("receive message")?;
 
@@ -171,6 +227,7 @@ impl Peers {
                 Message::NewBlock(block) => {
                     let mut blockchain = crate::BLOCKCHAIN.write().await;
                     blockchain.add_block(block).context("add new block")?;
+                    blockchain.rebuild_utxo_set();
                 }
                 _ => {
                     eprintln!("unexpected message from {}", node);

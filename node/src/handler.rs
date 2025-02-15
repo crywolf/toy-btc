@@ -24,11 +24,75 @@ pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) 
             }
         };
 
+        let Ok(source_addr) = stream.peer_addr().map_err(log_error) else {
+            return;
+        };
+
         use btclib::network::Message::*;
         match message {
             UTXOs(_) | Template(_) | Difference(_) | TemplateValidity(_) | NodeList(_) => {
                 println!("I am neither a miner nor a wallet! Terminating connection.");
                 return;
+            }
+
+            Subscribe(ref listener_addr) => {
+                println!(
+                    "--> Subscribe request received: {:?}, number of connected nodes: {}",
+                    message,
+                    nodes.lock().await.count()
+                );
+
+                let Ok(mut subscribe_stream) =
+                    TcpStream::connect(listener_addr).await.map_err(log_error)
+                else {
+                    return;
+                };
+
+                let remote_addr = subscribe_stream
+                    .peer_addr()
+                    .unwrap()
+                    .to_string()
+                    .replace("127.0.0.1", "localhost");
+
+                // send ACK message
+                let my_addr = nodes.lock().await.listener_addr().to_string();
+                let ack_message = Message::SubscribeAck(my_addr);
+                let _ = ack_message
+                    .send_async(&mut subscribe_stream)
+                    .await
+                    .map_err(log_error);
+                println!("<-- {ack_message:?} sent to {remote_addr}");
+
+                let skip_source_addr = source_addr.to_string().replace("127.0.0.1", "localhost");
+
+                // Add to Peers with addr to skip
+                nodes
+                    .lock()
+                    .await
+                    .add(&remote_addr, subscribe_stream, &skip_source_addr);
+
+                println!(
+                    "node {} succesfully subscribed, number of connected nodes: {}",
+                    listener_addr,
+                    nodes.lock().await.count()
+                );
+            }
+
+            SubscribeAck(ref remote_node_listener_addr) => {
+                println!("--> {message:?} received");
+
+                let source_addr = source_addr.to_string().replace("127.0.0.1", "localhost");
+
+                nodes
+                    .lock()
+                    .await
+                    .update_skip_addr(remote_node_listener_addr, &source_addr);
+
+                println!(
+                    "node subscribed to {}, number of connected nodes {}",
+                    remote_node_listener_addr,
+                    nodes.lock().await.count()
+                );
             }
 
             FetchBlock(height) => {
@@ -86,11 +150,12 @@ pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) 
                 } else {
                     println!("new block added to blockchain");
                     blockchain.rebuild_utxo_set();
+
                     // broadcast the received block to all known nodes
                     let _ = nodes
                         .lock()
                         .await
-                        .broadcast(&message)
+                        .broadcast(&message, Some(&source_addr))
                         .await
                         .map_err(log_error);
                 }
@@ -100,14 +165,21 @@ pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) 
                 println!("new transaction from peer, adding to mempool");
                 let mut blockchain = BLOCKCHAIN.write().await;
                 if let Err(e) = blockchain.add_to_mempool(tx.clone()) {
-                    println!("transaction rejected: {e}, closing connection");
-                    return;
+                    match e {
+                        btclib::error::BtcError::TxAlreadyInMempool(_) => {
+                            println!("transaction rejected: {e}")
+                        }
+                        _ => {
+                            println!("transaction rejected: {e}, closing connection");
+                            return;
+                        }
+                    }
                 } else {
                     // broadcast the received transaction to all known nodes
                     let _ = nodes
                         .lock()
                         .await
-                        .broadcast(&message)
+                        .broadcast(&message, Some(&source_addr))
                         .await
                         .map_err(log_error);
                 }
@@ -150,12 +222,16 @@ pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) 
                 // broadcast newly mined block to all known nodes
                 let message = Message::NewBlock(block);
 
-                let nodes = nodes.lock().await;
-                let _ = nodes.broadcast(&message).await.map_err(log_error);
+                let _ = nodes
+                    .lock()
+                    .await
+                    .broadcast(&message, Some(&source_addr))
+                    .await
+                    .map_err(log_error);
 
                 println!(
                     "new block broadcasted to connected nodes ({})",
-                    nodes.count()
+                    nodes.lock().await.count()
                 )
             }
 
@@ -170,12 +246,16 @@ pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) 
                 // broadcast the transaction to all known nodes
                 let message = Message::NewTransaction(tx);
 
-                let nodes = nodes.lock().await;
-                let _ = nodes.broadcast(&message).await.map_err(log_error);
+                let _ = nodes
+                    .lock()
+                    .await
+                    .broadcast(&message, Some(&source_addr))
+                    .await
+                    .map_err(log_error);
 
                 println!(
                     "transaction broadcasted to connected nodes ({})",
-                    nodes.count()
+                    nodes.lock().await.count()
                 )
             }
 

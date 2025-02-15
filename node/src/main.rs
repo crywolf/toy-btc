@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
     let blockchain_file = args.blockchain_file;
     let node_addrs = args.nodes;
 
-    let peers = peers::Peers::new();
+    let peers = peers::Peers::new(port);
 
     peers
         .populate_connections(&node_addrs)
@@ -80,14 +80,20 @@ async fn main() -> Result<()> {
     }
 
     // Start the TCP listener on 0.0.0.0:port
-    let addr = format!("0.0.0.0:{}", port);
-    let listener = TcpListener::bind(&addr).await?;
-    println!("Listening on {}", addr);
+    let listener_addr = format!("localhost:{}", port);
+    let listener = TcpListener::bind(&listener_addr).await?;
+    println!("---");
+    println!("Listening on {}", listener_addr);
 
     // start a task to periodically cleanup the mempool
     tokio::spawn(blockchain::cleanup());
     // and a task to periodically save the blockchain
     tokio::spawn(blockchain::save(blockchain_file.clone()));
+
+    peers
+        .subscribe_to_nodes()
+        .await
+        .context("subscribe to nodes")?;
 
     let nodes = Arc::new(Mutex::new(peers));
 
