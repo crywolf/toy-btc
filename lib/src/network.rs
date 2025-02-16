@@ -40,9 +40,9 @@ pub enum Message {
     /// This is the response to DiscoverNodes
     NodeList(Vec<String>),
     /// Ask a node whats the highest block it knows about in comparison to the local blockchain
-    AskDifference(u32),
+    AskDifference(u64),
     /// This is the response to AskDifference
-    Difference(i32),
+    Difference(i64),
     /// Ask a node to send a block with the specified height
     FetchBlock(usize),
     /// Broadcast a new block to other nodes

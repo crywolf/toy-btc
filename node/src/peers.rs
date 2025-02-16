@@ -139,11 +139,18 @@ impl Peers {
                     println!("received NodeList from {}", node);
 
                     for child_node in child_nodes {
-                        println!("adding node {}", child_node);
-                        let new_stream = TcpStream::connect(&child_node).await?;
-                        self.nodes.insert(child_node, (new_stream, None));
+                        // do not add itself (it might happen when reconnecting)
+                        if child_node != self.listener_addr() {
+                            println!("adding node {}", child_node);
+                            let new_stream = TcpStream::connect(&child_node).await?;
+                            self.nodes.insert(child_node, (new_stream, None));
+                        }
                     }
-                    self.nodes.insert(node.clone(), (stream, None));
+                    if node != self.listener_addr() {
+                        // do not add itself (it might happen when reconnecting)
+                        println!("adding node {}", node);
+                        self.nodes.insert(node.clone(), (stream, None));
+                    }
                 }
                 _ => {
                     eprintln!("unexpected message from {}", node);
@@ -154,7 +161,7 @@ impl Peers {
         Ok(())
     }
 
-    pub async fn find_longest_chain_node(&self) -> Result<Option<(String, u32)>> {
+    pub async fn find_longest_chain_node(&self) -> Result<Option<(String, u64)>> {
         println!("finding nodes with the highest blockchain length...");
         let mut longest_name = String::new();
         let mut longest_count = 0;
@@ -175,12 +182,16 @@ impl Peers {
 
             let (ref mut stream, _) = entry.value_mut();
 
-            let message = Message::AskDifference(0);
-            message
+            let blockchain = crate::BLOCKCHAIN.read().await;
+            let height = blockchain.block_height();
+            drop(blockchain);
+
+            let ask_message = Message::AskDifference(height);
+            ask_message
                 .send_async(stream)
                 .await
                 .context("send AskDifference message")?;
-            println!("sent AskDifference to {}", node);
+            println!("sent {:?} to {}", ask_message, node);
 
             let message = Message::receive_async(stream)
                 .await
@@ -205,25 +216,33 @@ impl Peers {
             return Ok(None); // all the peer nodes do not have any blocks yet
         }
 
-        Ok(Some((longest_name, longest_count as u32)))
+        Ok(Some((longest_name, longest_count as u64)))
     }
 
-    pub async fn download_blockchain(&self, node: &str, count: u32) -> Result<()> {
+    /// Request `need` missing blocks from the specified `node``
+    pub async fn synchronize_blockchain(&self, node: &str, need: u64) -> Result<()> {
         let mut entry = self.nodes.get_mut(node).expect("node name exists");
         let (ref mut stream, _) = entry.value_mut();
 
-        for i in 0..count as usize {
-            let message = Message::FetchBlock(i);
-            message
+        let blockchain = crate::BLOCKCHAIN.read().await;
+        let have = blockchain.block_height();
+        drop(blockchain);
+
+        println!("have: {} blocks, need: {} blocks", have, need,);
+        println!("downloading {} missing blocks...", need);
+
+        for i in (have)..(have + need) {
+            let send_msg = Message::FetchBlock(i as usize);
+            send_msg
                 .send_async(stream)
                 .await
                 .with_context(|| format!("send FetchBlock({i}) message"))?;
 
-            let message = Message::receive_async(stream)
+            let rcv_msg = Message::receive_async(stream)
                 .await
                 .context("receive message")?;
 
-            match message {
+            match rcv_msg {
                 Message::NewBlock(block) => {
                     let mut blockchain = crate::BLOCKCHAIN.write().await;
                     blockchain.add_block(block).context("add new block")?;

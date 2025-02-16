@@ -98,6 +98,7 @@ pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) 
             FetchBlock(height) => {
                 let blockchain = BLOCKCHAIN.read().await;
                 let Some(block) = blockchain.blocks().nth(height).cloned() else {
+                    println!("failed to find block {}", height);
                     return;
                 };
 
@@ -120,9 +121,9 @@ pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) 
 
             AskDifference(height) => {
                 let blockchain = BLOCKCHAIN.read().await;
-                let count = blockchain.block_height() as i32 - height as i32;
+                let nblocks = blockchain.block_height() as i64 - height as i64;
 
-                let _ = Difference(count)
+                let _ = Difference(nblocks)
                     .send_async(&mut stream)
                     .await
                     .map_err(log_error);

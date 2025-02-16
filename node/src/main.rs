@@ -48,38 +48,43 @@ async fn main() -> Result<()> {
             .context("load blockchain")?;
     } else {
         println!("blockchain file does not exist!");
-        if !node_addrs.is_empty() {
-            if let Some((longest_name, longest_count)) = peers
-                .find_longest_chain_node()
-                .await
-                .context("find node with longest chain")?
-            {
-                // request the blockchain from the node with the longest blockchain
-                peers
-                    .download_blockchain(&longest_name, longest_count)
-                    .await
-                    .with_context(|| format!("download blockchain from {longest_name}"))?;
-                println!("blockchain downloaded from {}", longest_name);
-
-                // recalculate utxos
-                {
-                    let mut blockchain = BLOCKCHAIN.write().await;
-                    blockchain.rebuild_utxo_set();
-                }
-                // try to adjust difficulty
-                {
-                    let mut blockchain = BLOCKCHAIN.write().await;
-                    blockchain.try_adjust_target();
-                }
-            } else {
-                println!("peers do not have any blocks yet, starting with empty blockchain");
-            }
-        } else {
-            println!("no initial nodes provided, starting as a seed node");
-        }
     }
 
-    // Start the TCP listener on 0.0.0.0:port
+    if !node_addrs.is_empty() {
+        if let Some((longest_name, longest_count)) = peers
+            .find_longest_chain_node()
+            .await
+            .context("find node with longest chain")?
+        {
+            println!(
+                "found node with longest chain: {}, {}",
+                longest_name, longest_count
+            );
+            // request missing blocks from the node with the longest blockchain
+            peers
+                .synchronize_blockchain(&longest_name, longest_count)
+                .await
+                .with_context(|| format!("download blockchain from {longest_name}"))?;
+            println!("blockchain downloaded from {}", longest_name);
+
+            // recalculate utxos
+            {
+                let mut blockchain = BLOCKCHAIN.write().await;
+                blockchain.rebuild_utxo_set();
+            }
+            // try to adjust difficulty
+            {
+                let mut blockchain = BLOCKCHAIN.write().await;
+                blockchain.try_adjust_target();
+            }
+        } else {
+            println!("no longer blockchain found, we are up to date");
+        }
+    } else if !Path::new(&blockchain_file).exists() {
+        println!("no initial nodes provided, starting as a seed node");
+    }
+
+    // Start the TCP listener on localhost:port
     let listener_addr = format!("localhost:{}", port);
     let listener = TcpListener::bind(&listener_addr).await?;
     println!("---");
