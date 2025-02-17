@@ -7,7 +7,7 @@ use std::{path::Path, sync::Arc};
 use anyhow::{Context, Result};
 use argh::FromArgs;
 use blockchain::BLOCKCHAIN;
-use tokio::{net::TcpListener, sync::Mutex};
+use tokio::net::TcpListener;
 
 #[derive(FromArgs)]
 /// A toy bitcoin node
@@ -100,7 +100,7 @@ async fn main() -> Result<()> {
         .await
         .context("subscribe to nodes")?;
 
-    let nodes = Arc::new(Mutex::new(peers));
+    let nodes = Arc::new(peers);
 
     loop {
         let (socket, _) = listener.accept().await?;

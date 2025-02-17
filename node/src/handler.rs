@@ -7,13 +7,12 @@ use btclib::network::Message;
 use btclib::sha256::Hash;
 use chrono::Utc;
 use tokio::net::TcpStream;
-use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use crate::blockchain::BLOCKCHAIN;
 use crate::peers::Peers;
 
-pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) {
+pub async fn handle_connection(nodes: Arc<Peers>, mut stream: TcpStream) {
     loop {
         // read a message from the socket
         let message = match Message::receive_async(&mut stream).await {
@@ -39,7 +38,7 @@ pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) 
                 println!(
                     "--> Subscribe request received: {:?}, number of connected nodes: {}",
                     message,
-                    nodes.lock().await.count()
+                    nodes.count()
                 );
 
                 let Ok(mut subscribe_stream) =
@@ -55,7 +54,7 @@ pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) 
                     .replace("127.0.0.1", "localhost");
 
                 // send ACK message
-                let my_addr = nodes.lock().await.listener_addr().to_string();
+                let my_addr = nodes.listener_addr().to_string();
                 let ack_message = Message::SubscribeAck(my_addr);
                 let _ = ack_message
                     .send_async(&mut subscribe_stream)
@@ -66,15 +65,12 @@ pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) 
                 let skip_source_addr = source_addr.to_string().replace("127.0.0.1", "localhost");
 
                 // Add to Peers with addr to skip
-                nodes
-                    .lock()
-                    .await
-                    .add(&remote_addr, subscribe_stream, &skip_source_addr);
+                nodes.add(&remote_addr, subscribe_stream, &skip_source_addr);
 
                 println!(
                     "node {} succesfully subscribed, number of connected nodes: {}",
                     listener_addr,
-                    nodes.lock().await.count()
+                    nodes.count()
                 );
             }
 
@@ -82,16 +78,12 @@ pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) 
                 println!("--> {message:?} received");
 
                 let source_addr = source_addr.to_string().replace("127.0.0.1", "localhost");
-
-                nodes
-                    .lock()
-                    .await
-                    .update_skip_addr(remote_node_listener_addr, &source_addr);
+                nodes.update_skip_addr(remote_node_listener_addr, &source_addr);
 
                 println!(
                     "node subscribed to {}, number of connected nodes {}",
                     remote_node_listener_addr,
-                    nodes.lock().await.count()
+                    nodes.count()
                 );
             }
 
@@ -110,9 +102,9 @@ pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) 
 
             DiscoverNodes => {
                 // return list af all connected nodes
-                let node_addrs = nodes.lock().await.addresses();
+                let node_addrs = nodes.addresses();
 
-                println!("sending list of all known nodes {}", node_addrs.len());
+                println!("sending list of all known nodes ({})", node_addrs.len());
                 let _ = NodeList(node_addrs)
                     .send_async(&mut stream)
                     .await
@@ -154,8 +146,6 @@ pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) 
 
                     // broadcast the received block to all known nodes
                     let _ = nodes
-                        .lock()
-                        .await
                         .broadcast(&message, Some(&source_addr))
                         .await
                         .map_err(log_error);
@@ -178,8 +168,6 @@ pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) 
                 } else {
                     // broadcast the received transaction to all known nodes
                     let _ = nodes
-                        .lock()
-                        .await
                         .broadcast(&message, Some(&source_addr))
                         .await
                         .map_err(log_error);
@@ -222,17 +210,14 @@ pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) 
 
                 // broadcast newly mined block to all known nodes
                 let message = Message::NewBlock(block);
-
                 let _ = nodes
-                    .lock()
-                    .await
                     .broadcast(&message, Some(&source_addr))
                     .await
                     .map_err(log_error);
 
                 println!(
                     "new block broadcasted to connected nodes ({})",
-                    nodes.lock().await.count()
+                    nodes.count()
                 )
             }
 
@@ -246,17 +231,14 @@ pub async fn handle_connection(nodes: Arc<Mutex<Peers>>, mut stream: TcpStream) 
 
                 // broadcast the transaction to all known nodes
                 let message = Message::NewTransaction(tx);
-
                 let _ = nodes
-                    .lock()
-                    .await
                     .broadcast(&message, Some(&source_addr))
                     .await
                     .map_err(log_error);
 
                 println!(
                     "transaction broadcasted to connected nodes ({})",
-                    nodes.lock().await.count()
+                    nodes.count()
                 )
             }
 

@@ -45,7 +45,7 @@ impl Peers {
             .collect::<Vec<_>>()
     }
 
-    pub fn update_skip_addr(&mut self, peer_addr: &str, skip_source_addr: &str) {
+    pub fn update_skip_addr(&self, peer_addr: &str, skip_source_addr: &str) {
         self.nodes
             .entry(peer_addr.to_string())
             .and_modify(|(_, skip)| *skip = Some(skip_source_addr.to_string()));
