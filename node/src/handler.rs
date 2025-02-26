@@ -1,6 +1,7 @@
 use std::fmt::Debug;
 use std::sync::Arc;
 
+use anyhow::Context;
 use btclib::blockchain::{Block, BlockHeader, Tx, TxOutput};
 use btclib::merkle_root::MerkleRoot;
 use btclib::network::Message;
@@ -41,8 +42,10 @@ pub async fn handle_connection(nodes: Arc<Peers>, mut stream: TcpStream) {
                     nodes.count()
                 );
 
-                let Ok(mut subscribe_stream) =
-                    TcpStream::connect(listener_addr).await.map_err(log_error)
+                let Ok(mut subscribe_stream) = TcpStream::connect(listener_addr)
+                    .await
+                    .with_context(|| format!("connect back to {listener_addr}"))
+                    .map_err(log_error)
                 else {
                     return;
                 };

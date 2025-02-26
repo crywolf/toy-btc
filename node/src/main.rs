@@ -12,11 +12,14 @@ use tokio::net::TcpListener;
 #[derive(FromArgs)]
 /// A toy bitcoin node
 struct Args {
+    #[argh(option, default = "String::from(\"localhost\")")]
+    /// host address (default: localhost)
+    host: String,
     #[argh(option)]
     /// port number
     port: u16,
     #[argh(option, default = "String::from(\"./blockchain.cbor\")")]
-    /// blockchain file location
+    /// blockchain file location (default: ./blockchain.cbor)
     blockchain_file: String,
     #[argh(positional)]
     /// addresses of initial nodes
@@ -28,11 +31,10 @@ async fn main() -> Result<()> {
     // Parse command line arguments
     let args: Args = argh::from_env();
 
-    let port = args.port;
     let blockchain_file = args.blockchain_file;
     let node_addrs = args.nodes;
 
-    let peers = peers::Peers::new(port);
+    let peers = peers::Peers::new(&args.host, args.port);
 
     peers
         .populate_connections(&node_addrs)
@@ -84,9 +86,11 @@ async fn main() -> Result<()> {
         println!("no initial nodes provided, starting as a seed node");
     }
 
-    // Start the TCP listener on localhost:port
-    let listener_addr = format!("localhost:{}", port);
-    let listener = TcpListener::bind(&listener_addr).await?;
+    // Start the TCP listener on 0.0.0.0:port
+    let listener_addr = peers.listener_addr();
+    let listener = TcpListener::bind(listener_addr)
+        .await
+        .with_context(|| format!("bind listener to addr {listener_addr}"))?;
     println!("---");
     println!("Listening on {}", listener_addr);
 

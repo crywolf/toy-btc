@@ -14,9 +14,9 @@ pub struct Peers {
 }
 
 impl Peers {
-    pub fn new(port: u16) -> Self {
+    pub fn new(host: &str, port: u16) -> Self {
         Self {
-            listener_addr: format!("localhost:{}", port),
+            listener_addr: format!("{host}:{port}"),
             nodes: DashMap::new(),
         }
     }
@@ -119,8 +119,9 @@ impl Peers {
         println!("trying to connect to other nodes...");
 
         for node in nodes {
-            println!("connecting to {}", node);
-            let mut stream = TcpStream::connect(&node).await?;
+            let mut stream = TcpStream::connect(&node)
+                .await
+                .with_context(|| format!("connecting to {node}"))?;
 
             // Ask connected node to report all the other nodes it knows about
             let message = Message::DiscoverNodes;
@@ -141,8 +142,11 @@ impl Peers {
                     for child_node in child_nodes {
                         // do not add itself (it might happen when reconnecting)
                         if child_node != self.listener_addr() {
+                            let new_stream = TcpStream::connect(&child_node)
+                                .await
+                                .with_context(|| format!("connecting to {child_node}"))?;
+
                             println!("adding node {}", child_node);
-                            let new_stream = TcpStream::connect(&child_node).await?;
                             self.nodes.insert(child_node, (new_stream, None));
                         }
                     }
