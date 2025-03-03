@@ -15,6 +15,7 @@ services:
       - btc:/data
     networks:
       - btc
+    restart: on-failure
 
   node_2:
     image: btc_node
@@ -25,6 +26,7 @@ services:
       - btc:/data
     networks:
       - btc
+    restart: on-failure
     depends_on:
       node_1:
         condition: service_started
@@ -38,6 +40,7 @@ services:
       - btc:/data
     networks:
       - btc
+    restart: on-failure
     depends_on:
       node_2:
         condition: service_started
@@ -52,6 +55,7 @@ services:
       - btc:/data
     networks:
       - btc
+    restart: on-failure
     depends_on:
       node_3:
         condition: service_started
@@ -65,9 +69,8 @@ services:
       - btc:/data
     networks:
       - btc
+    restart: on-failure
     depends_on:
-      node_3:
-        condition: service_started
       node_4:
         condition: service_started
 
@@ -86,8 +89,9 @@ services:
       dockerfile: miner.Dockerfile
     networks:
       - btc
+    restart: on-failure
     depends_on:
-      node_3:
+      node_5:
         condition: service_started
 
 ###############################################################
