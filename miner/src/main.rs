@@ -10,7 +10,9 @@ use btclib::network::Message;
 use btclib::Saveable;
 use clap::Parser;
 use tokio::net::TcpStream;
+use tokio::signal::unix::{signal, SignalKind};
 use tokio::time::{interval, Duration};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -52,28 +54,46 @@ impl Miner {
         })
     }
 
-    async fn run(&self) -> Result<()> {
-        self.spawn_mining_thread();
+    async fn run(&self, cancel_token: CancellationToken) -> Result<()> {
+        let handle = self.spawn_mining_thread(cancel_token.clone());
 
         let mut template_interval = interval(Duration::from_secs(5));
-        loop {
-            tokio::select! {
-                _ = template_interval.tick() => {
-                    self.fetch_or_validate_template().await?;
+        tokio::select! {
+            _ = cancel_token.cancelled() => {}
+            res = async {
+                loop {
+                    tokio::select! {
+                        _ = template_interval.tick() => {
+                            self.fetch_or_validate_template().await?;
+                        }
+                        Ok(mined_block) = self.mined_block_receiver.recv_async() => {
+                            self.submit_mined_block(mined_block).await?;
+                        }
+                    }
                 }
-                Ok(mined_block) = self.mined_block_receiver.recv_async() => {
-                    self.submit_mined_block(mined_block).await?;
-                }
+                // help the rust type inferencer out
+                #[allow(unreachable_code)]
+                Ok::<_, anyhow::Error>(())
+            } => {
+                res?;
             }
         }
+
+        handle.join().unwrap();
+        println!("miner stopped");
+        Ok(())
     }
 
-    fn spawn_mining_thread(&self) -> thread::JoinHandle<()> {
+    fn spawn_mining_thread(&self, cancel_token: CancellationToken) -> thread::JoinHandle<()> {
         let template = Arc::clone(&self.current_template);
         let mining = Arc::clone(&self.mining);
         let sender = self.mined_block_sender.clone();
 
         thread::spawn(move || loop {
+            if cancel_token.is_cancelled() {
+                println!("mining thread terminated");
+                return;
+            }
             if mining.load(Ordering::Relaxed) {
                 if let Some(mut block) = template.lock().unwrap().clone() {
                     println!("Mining block with target: {}", block.header.target);
@@ -184,6 +204,28 @@ pub async fn main() -> Result<()> {
     let public_key = PublicKey::load_from_file(&cli.public_key_file)
         .map_err(|e| anyhow!("Error reading public key: {}", e))?;
 
+    // Graceful shutdown
+    let token = CancellationToken::new();
+    let cancel_token = token.clone();
+    tokio::spawn(async move {
+        let mut hup = signal(SignalKind::hangup()).unwrap();
+        let mut term = signal(SignalKind::terminate()).unwrap();
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                println!("\n>>> ctrl-c received!");
+                token.cancel();
+            }
+           _= hup.recv() => {
+                println!(">>> got signal HUP");
+                token.cancel();
+            }
+            _= term.recv() => {
+                println!(">>> got signal TERM");
+                token.cancel();
+            }
+        }
+    });
+
     let miner = Miner::new(cli.address, public_key).await?;
-    miner.run().await
+    miner.run(cancel_token).await
 }
