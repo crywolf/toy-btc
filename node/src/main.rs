@@ -8,6 +8,9 @@ use anyhow::{Context, Result};
 use argh::FromArgs;
 use blockchain::BLOCKCHAIN;
 use tokio::net::TcpListener;
+use tokio::signal::unix::{signal, SignalKind};
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 #[derive(FromArgs)]
 /// A toy bitcoin node
@@ -94,10 +97,41 @@ async fn main() -> Result<()> {
     println!("---");
     println!("Listening on {}", listener_addr);
 
+    // Graceful shutdown
+    let token = CancellationToken::new();
+    let cancel_token = token.clone();
+    let tracker = TaskTracker::new();
+
     // start a task to periodically cleanup the mempool
-    tokio::spawn(blockchain::cleanup());
+    tracker.spawn(blockchain::cleanup(cancel_token.clone()));
     // and a task to periodically save the blockchain
-    tokio::spawn(blockchain::save(blockchain_file.clone()));
+    tracker.spawn(blockchain::save(
+        blockchain_file.clone(),
+        cancel_token.clone(),
+    ));
+
+    let tracker_clone = tracker.clone();
+    tokio::spawn(async move {
+        let mut hup = signal(SignalKind::hangup()).unwrap();
+        let mut term = signal(SignalKind::terminate()).unwrap();
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                println!("\n>>> ctrl-c received!");
+                tracker_clone.close();
+                token.cancel();
+            }
+           _= hup.recv() => {
+                println!(">>> got signal HUP");
+                tracker_clone.close();
+                token.cancel();
+            }
+            _= term.recv() => {
+                println!(">>> got signal TERM");
+                tracker_clone.close();
+                token.cancel();
+            }
+        }
+    });
 
     peers
         .subscribe_to_nodes()
@@ -106,8 +140,31 @@ async fn main() -> Result<()> {
 
     let nodes = Arc::new(peers);
 
-    loop {
-        let (socket, _) = listener.accept().await?;
-        tokio::spawn(handler::handle_connection(Arc::clone(&nodes), socket));
+    // Main connection loop
+    tokio::select! {
+        _ = cancel_token.cancelled() => {
+            println!("graceful shutdown triggered");
+            println!("terminating accept loop");
+        }
+        res = async {
+            loop {
+                let (socket, _) = listener.accept().await?;
+                tracker.spawn(handler::handle_connection(Arc::clone(&nodes), socket, cancel_token.clone()));
+            }
+            // help the rust type inferencer out
+            #[allow(unreachable_code)]
+            Ok::<_, anyhow::Error>(())
+        } => {
+            res?;
+        }
     }
+
+    println!("main accept loop ended, waiting for tasks to complete...");
+
+    tracker.wait().await;
+
+    println!("all tasks exited");
+    println!("node stopped");
+
+    Ok(())
 }

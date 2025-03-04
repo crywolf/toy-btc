@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -8,24 +9,37 @@ use btclib::network::Message;
 use btclib::sha256::Hash;
 use chrono::Utc;
 use tokio::net::TcpStream;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::blockchain::BLOCKCHAIN;
 use crate::peers::Peers;
 
-pub async fn handle_connection(nodes: Arc<Peers>, mut stream: TcpStream) {
+pub async fn handle_connection(nodes: Arc<Peers>, stream: TcpStream, cancel: CancellationToken) {
+    let Ok(source_addr) = stream.peer_addr().map_err(log_error) else {
+        return;
+    };
+
+    tokio::select! {
+        _ = process_connection(nodes, stream, source_addr) => {}
+        _ = cancel.cancelled() => {
+            println!("connection processing loop terminated (peer: {})", source_addr);
+        }
+    }
+}
+
+async fn process_connection(nodes: Arc<Peers>, mut stream: TcpStream, source_addr: SocketAddr) {
     loop {
         // read a message from the socket
         let message = match Message::receive_async(&mut stream).await {
             Ok(message) => message,
             Err(e) => {
-                println!("invalid message from peer: {e}, closing connection");
+                println!(
+                    "invalid message from peer {}: {}, closing connection",
+                    source_addr, e
+                );
                 return;
             }
-        };
-
-        let Ok(source_addr) = stream.peer_addr().map_err(log_error) else {
-            return;
         };
 
         use btclib::network::Message::*;
@@ -37,8 +51,9 @@ pub async fn handle_connection(nodes: Arc<Peers>, mut stream: TcpStream) {
 
             Subscribe(ref listener_addr) => {
                 println!(
-                    "--> Subscribe request received: {:?}, number of connected nodes: {}",
+                    "--> {:?} received from {}, number of connected nodes: {}",
                     message,
+                    source_addr,
                     nodes.count()
                 );
 

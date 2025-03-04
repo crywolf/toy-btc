@@ -12,3 +12,4 @@ uuid = { version = "1.11.0", features = ["v4"] }
 chrono = "0.4.39"
 dashmap = "6.1.0"
 static_init = "1.0.3"
+tokio-util = { version ="0.7.13", features = ["rt"] }
