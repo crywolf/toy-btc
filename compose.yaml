@@ -62,7 +62,7 @@ services:
 
   node_5:
     image: btc_node
-    command: --host node_5 --port 9000 node_3:9000 node_4:9000
+    command: --host node_5 --port 9000 node_3:9000 node_4:9000 node_2:9000
     ports:
       - 9004:9000
     volumes:
@@ -82,8 +82,6 @@ services:
     command: -a node_3:9000 -p /data/alice.pub.pem
     volumes:
       - .:/data:ro
-    ports:
-      - 9088:9000
     build:
       context: .
       dockerfile: miner.Dockerfile
