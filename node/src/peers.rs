@@ -98,27 +98,15 @@ impl Peers {
         Ok(())
     }
 
-    /// Sends subscription message to all connected nodes
-    pub async fn subscribe_to_nodes(&self) -> Result<()> {
-        for mut item in self.nodes.iter_mut() {
-            let node = item.key().clone();
-            let (stream, _) = item.value_mut();
-
-            let message = Message::Subscribe(self.listener_addr.clone());
-            println!("<-- sending {message:?} to {node}");
-            message
-                .send_async(stream)
-                .await
-                .context("send Subscribe message")?;
-        }
-        Ok(())
-    }
-
     /// Discovers and connects to other nodes
     pub async fn populate_connections(&self, nodes: &[String]) -> Result<()> {
         println!("trying to connect to other nodes...");
 
         for node in nodes {
+            if self.nodes.contains_key(&node.clone()) {
+                continue;
+            }
+
             let mut stream = TcpStream::connect(&node)
                 .await
                 .with_context(|| format!("connecting to {node}"))?;
@@ -137,22 +125,29 @@ impl Peers {
 
             match message {
                 Message::NodeList(child_nodes) => {
-                    println!("received NodeList from {}", node);
+                    println!(
+                        "received NodeList from {} with {} items",
+                        node,
+                        child_nodes.len()
+                    );
 
                     for child_node in child_nodes {
                         // do not add itself (it might happen when reconnecting)
                         if child_node != self.listener_addr() {
-                            let new_stream = TcpStream::connect(&child_node)
-                                .await
-                                .with_context(|| format!("connecting to {child_node}"))?;
+                            // do not connect to already connected node
+                            if !self.nodes.contains_key(&child_node) {
+                                let new_stream = TcpStream::connect(&child_node)
+                                    .await
+                                    .with_context(|| format!("connecting to {child_node}"))?;
 
-                            println!("adding node {}", child_node);
-                            self.nodes.insert(child_node, (new_stream, None));
+                                println!("adding '{}' to the list of connected nodes", child_node);
+                                self.nodes.insert(child_node, (new_stream, None));
+                            }
                         }
                     }
+                    // do not add itself (it might happen when reconnecting)
                     if node != self.listener_addr() {
-                        // do not add itself (it might happen when reconnecting)
-                        println!("adding node {}", node);
+                        println!("adding '{}' to the list of connected nodes", node);
                         self.nodes.insert(node.clone(), (stream, None));
                     }
                 }
@@ -162,6 +157,26 @@ impl Peers {
             }
         }
 
+        Ok(())
+    }
+
+    /// Sends subscription message to all connected nodes
+    pub async fn subscribe_to_nodes(&self) -> Result<()> {
+        println!("subscribing to connected nodes...");
+
+        for mut item in self.nodes.iter_mut() {
+            let node = item.key().clone();
+            let (stream, _) = item.value_mut();
+
+            let message = Message::Subscribe(self.listener_addr.clone());
+            println!("<-- sending {message:?} to {node}");
+            message
+                .send_async(stream)
+                .await
+                .context("send Subscribe message")?;
+        }
+
+        println!("subscription requests sent to {} nodes, done", self.count());
         Ok(())
     }
 

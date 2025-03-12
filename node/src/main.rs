@@ -39,11 +39,13 @@ async fn main() -> Result<()> {
 
     let peers = peers::Peers::new(&args.host, args.port);
 
+    println!("-");
     peers
         .populate_connections(&node_addrs)
         .await
         .context("populate connections")?;
     println!("total amount of known peer nodes: {}", peers.count());
+    println!("--");
 
     // Check if the blockchain_file exists
     if Path::new(&blockchain_file).exists() {
@@ -133,12 +135,10 @@ async fn main() -> Result<()> {
         }
     });
 
-    peers
-        .subscribe_to_nodes()
-        .await
-        .context("subscribe to nodes")?;
-
     let nodes = Arc::new(peers);
+
+    let nodes_clone = Arc::clone(&nodes);
+    tracker.spawn(async move { nodes_clone.subscribe_to_nodes().await });
 
     // Main connection loop
     tokio::select! {

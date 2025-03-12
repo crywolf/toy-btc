@@ -65,11 +65,17 @@ async fn process_connection(nodes: Arc<Peers>, mut stream: TcpStream, source_add
                     return;
                 };
 
-                let remote_addr = subscribe_stream
+                let mut remote_addr = subscribe_stream
                     .peer_addr()
                     .unwrap()
                     .to_string()
                     .replace("127.0.0.1", "localhost");
+
+                // if using localhost and not real network (Docker), the `remote_addr` is correctly set as 'localhost:port';
+                // otherwise we want to set `listener_addr` from the subscription message as a remote address
+                if !remote_addr.starts_with("localhost") {
+                    remote_addr = listener_addr.clone();
+                }
 
                 // send ACK message
                 let my_addr = nodes.listener_addr().to_string();
@@ -86,7 +92,7 @@ async fn process_connection(nodes: Arc<Peers>, mut stream: TcpStream, source_add
                 nodes.add(&remote_addr, subscribe_stream, &skip_source_addr);
 
                 println!(
-                    "node {} succesfully subscribed, number of connected nodes: {}",
+                    "node '{}' succesfully subscribed, number of connected nodes: {}",
                     listener_addr,
                     nodes.count()
                 );
@@ -99,7 +105,7 @@ async fn process_connection(nodes: Arc<Peers>, mut stream: TcpStream, source_add
                 nodes.update_skip_addr(remote_node_listener_addr, &source_addr);
 
                 println!(
-                    "node subscribed to {}, number of connected nodes {}",
+                    "node is subscribed to '{}', number of connected nodes {}",
                     remote_node_listener_addr,
                     nodes.count()
                 );
