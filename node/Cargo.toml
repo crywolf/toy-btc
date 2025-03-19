@@ -2,6 +2,11 @@
 name = "node"
 version = "0.1.0"
 edition = "2021"
+build = "../build.rs"
+
+[[bin]]
+name = "node-grpc"
+path = "src/grpc_node.rs"
 
 [dependencies]
 btclib = { version = "0.1.0", path = "../lib" }
@@ -13,3 +18,10 @@ chrono = "0.4.39"
 dashmap = "6.1.0"
 static_init = "1.0.3"
 tokio-util = { version ="0.7.13", features = ["rt"] }
+prost = "0.13.5"
+tonic = "0.12.3"
+tonic-reflection = "0.12.3"
+tokio-stream = "0.1.17"
+
+[build-dependencies]
+tonic-build = "0.12.3"

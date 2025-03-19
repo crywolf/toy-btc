@@ -1,12 +1,16 @@
 # syntax=docker/dockerfile:1
 FROM rust:1.80.1 AS builder
 
+RUN apt-get -y update && apt-get install -y protobuf-compiler
+
 WORKDIR /usr/src/btc_rust
 
 COPY ./lib ./lib
 COPY ./miner ./miner
 COPY ./node ./node
 COPY ./wallet ./wallet
+COPY ./proto ./proto
+COPY ./build.rs .
 COPY ./Cargo.toml .
 COPY ./Cargo.lock .
 
