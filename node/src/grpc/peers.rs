@@ -5,14 +5,15 @@ use dashmap::DashMap;
 use tonic::transport::Channel;
 use tonic::Request;
 
-use crate::pb::{self, node_client::NodeClient};
+use super::node::pb;
+use super::node::pb::node_api_client::NodeApiClient;
 
 /// Connected peer nodes
 pub struct Peers {
     listener_addr: String,
 
     /// DashMap<target_addr, (grpc client,  Option<skip_source_addr>)>
-    nodes: DashMap<String, (NodeClient<Channel>, Option<String>)>,
+    nodes: DashMap<String, (NodeApiClient<Channel>, Option<String>)>,
 }
 
 impl Peers {
@@ -27,12 +28,12 @@ impl Peers {
         &self.listener_addr
     }
 
-    pub fn add(&self, addr: &str, client: NodeClient<Channel>, skip_source_addr: &str) {
-        self.nodes.insert(
-            addr.to_string(),
-            (client, Some(skip_source_addr.to_string())),
-        );
-    }
+    // pub fn add(&self, addr: &str, client: NodeClient<Channel>, skip_source_addr: &str) {
+    //     self.nodes.insert(
+    //         addr.to_string(),
+    //         (client, Some(skip_source_addr.to_string())),
+    //     );
+    // }
 
     /// Returns number of connected nodes
     pub fn count(&self) -> usize {
@@ -53,7 +54,7 @@ impl Peers {
 
         for node in nodes {
             let addr = format!("http://{node}");
-            let mut client = NodeClient::connect(addr)
+            let mut client = NodeApiClient::connect(addr)
                 .await
                 .with_context(|| format!("connecting to {node}"))?;
 
@@ -61,7 +62,7 @@ impl Peers {
             let response = client
                 .discover_nodes(request)
                 .await
-                .context("discover nodes")?;
+                .context("calling discover_nodes RPC")?;
             println!("sent DiscoverNodes to {}", node);
 
             let child_nodes = response.into_inner().nodes;
@@ -78,7 +79,7 @@ impl Peers {
                     // do not connect to already connected node
                     if !self.nodes.contains_key(&child_node) {
                         let addr = format!("http://{child_node}");
-                        let client = NodeClient::connect(addr)
+                        let client = NodeApiClient::connect(addr)
                             .await
                             .with_context(|| format!("connecting to {child_node}"))?;
 
@@ -125,7 +126,7 @@ impl Peers {
             let response = client
                 .ask_difference(Request::new(pb::DifferenceRequest { height }))
                 .await
-                .context("ask difference")?;
+                .context("calling ask_difference RPC")?;
 
             let count = response.into_inner().n_blocks;
 
@@ -161,15 +162,14 @@ impl Peers {
                 start: have,
                 n_blocks: need,
             }))
-            .await?
+            .await
+            .context("calling fetch_blocks RPC")?
             .into_inner();
-
-        println!("FETCH BLOCKS");
 
         while let Some(block) = stream.message().await? {
             let bytes = block.cbor;
             let block = Block::load(&bytes[..]).context("deserialize block")?;
-            println!("> fetch block hash {}", block.hash());
+            println!("> fetched block {:?}", block.header.hash());
 
             let mut blockchain = crate::BLOCKCHAIN.write().await;
             blockchain.add_block(block).context("add new block")?;
@@ -177,7 +177,7 @@ impl Peers {
         }
 
         let blockchain = crate::BLOCKCHAIN.read().await;
-        println!("block height: {}", blockchain.block_height());
+        println!("block height = {}", blockchain.block_height());
 
         Ok(())
     }

@@ -1343,8 +1343,11 @@ dependencies = [
  "btclib",
  "clap",
  "flume",
+ "prost",
  "tokio",
  "tokio-util",
+ "tonic",
+ "tonic-build",
 ]
 
 [[package]]

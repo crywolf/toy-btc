@@ -1,88 +1,13 @@
-use std::{path::Path, sync::Arc};
+use std::path::Path;
 
 use anyhow::{Context, Result};
+use tonic::transport::Server;
+
 use blockchain::BLOCKCHAIN;
-use btclib::Saveable;
-use grpc::peers::Peers;
-use pb::node_server::{Node, NodeServer};
-use tokio::sync::mpsc;
-use tokio_stream::wrappers::ReceiverStream;
-use tonic::{transport::Server, Request, Response, Status};
-
-pub mod pb {
-    tonic::include_proto!("node");
-
-    pub(crate) const FILE_DESCRIPTOR_SET: &[u8] =
-        tonic::include_file_descriptor_set!("reflection_descriptor");
-}
 
 mod args;
 mod blockchain;
 mod grpc;
-
-pub struct NodeSvc {
-    peers: Arc<tokio::sync::RwLock<Peers>>,
-}
-
-impl NodeSvc {
-    pub fn new(peers: Peers) -> Self {
-        Self {
-            peers: Arc::new(tokio::sync::RwLock::new(peers)),
-        }
-    }
-}
-
-#[tonic::async_trait]
-impl Node for NodeSvc {
-    /// Ask a node to report all the other nodes it knows about
-    async fn discover_nodes(
-        &self,
-        _request: Request<pb::Empty>,
-    ) -> Result<Response<pb::NodeList>, Status> {
-        let nodes = self.peers.read().await.addresses();
-        println!("sending list of all known nodes ({})", nodes.len());
-        Ok(Response::new(pb::NodeList { nodes }))
-    }
-
-    /// Ask a node what is the highest block it knows about in comparison to the local blockchain
-    async fn ask_difference(
-        &self,
-        request: Request<pb::DifferenceRequest>,
-    ) -> Result<Response<pb::DifferenceResponse>, Status> {
-        let height = request.into_inner().height;
-        let blockchain = BLOCKCHAIN.read().await;
-        let n_blocks = blockchain.block_height() as i64 - height as i64;
-
-        Ok(Response::new(pb::DifferenceResponse { n_blocks }))
-    }
-
-    type FetchBlocksStream = ReceiverStream<Result<pb::Block, Status>>;
-
-    /// Ask a node to send stream of blocks starting from the specified height
-    async fn fetch_blocks(
-        &self,
-        request: Request<pb::FetchBlockIntervalRequest>,
-    ) -> Result<Response<Self::FetchBlocksStream>, Status> {
-        let request = request.into_inner();
-        let start = request.start as usize;
-        let n_blocks = request.n_blocks as usize;
-
-        let (tx, rx) = mpsc::channel(4);
-
-        tokio::spawn(async move {
-            let blockchain = BLOCKCHAIN.read().await;
-            let blocks = blockchain.blocks().skip(start).take(n_blocks);
-            for block in blocks {
-                let mut bytes = Vec::new();
-                block.save(&mut bytes).expect("failed to serialize block");
-                let block = pb::Block { cbor: bytes };
-                tx.send(Ok(block)).await.expect("failed to send block");
-            }
-        });
-
-        Ok(Response::new(ReceiverStream::new(rx)))
-    }
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -152,18 +77,17 @@ async fn main() -> Result<()> {
         .with_context(|| format!("parsing address {listener_addr}"))?;
 
     let reflection = tonic_reflection::server::Builder::configure()
-        .register_encoded_file_descriptor_set(pb::FILE_DESCRIPTOR_SET)
+        .register_encoded_file_descriptor_set(grpc::FILE_DESCRIPTOR_SET)
         .build_v1()
         .unwrap();
-
-    let node_svc = NodeSvc::new(peers);
 
     println!("---");
     println!("Listening on {} (gRPC)", addr);
 
     Server::builder()
         .add_service(reflection)
-        .add_service(NodeServer::new(node_svc))
+        .add_service(grpc::node_api::create_server(peers))
+        .add_service(grpc::miner_api::create_server())
         .serve(addr)
         .await?;
 
