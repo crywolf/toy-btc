@@ -1,19 +1,32 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
-use btclib::blockchain::Block;
+use btclib::blockchain::{Block, Tx};
 use btclib::Saveable;
 use dashmap::DashMap;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 use tonic::transport::Channel;
 use tonic::Request;
 
+use super::log_error;
 use super::node::pb;
 use super::node::pb::node_api_client::NodeApiClient;
+
+pub struct Subscriber {
+    block_sender: mpsc::Sender<Block>,
+}
 
 /// Connected peer nodes
 pub struct Peers {
     listener_addr: String,
 
-    /// DashMap<target_addr, (grpc client,  Option<skip_source_addr>)>
+    /// DashMap<conn addr, (grpc client, Option<skip_source_addr>)>
     nodes: DashMap<String, (NodeApiClient<Channel>, Option<String>)>,
+
+    pub block_subscribers: DashMap<usize, Subscriber>,
 }
 
 impl Peers {
@@ -21,6 +34,7 @@ impl Peers {
         Self {
             listener_addr: format!("{host}:{port}"),
             nodes: DashMap::new(),
+            block_subscribers: DashMap::default(),
         }
     }
 
@@ -28,12 +42,22 @@ impl Peers {
         &self.listener_addr
     }
 
-    // pub fn add(&self, addr: &str, client: NodeClient<Channel>, skip_source_addr: &str) {
-    //     self.nodes.insert(
-    //         addr.to_string(),
-    //         (client, Some(skip_source_addr.to_string())),
-    //     );
-    // }
+    pub fn add_block_subscriber(&self, sender: mpsc::Sender<Block>) -> usize {
+        static COUNTER: AtomicUsize = AtomicUsize::new(1);
+        let subscriber_id = COUNTER.fetch_add(1, Ordering::Relaxed);
+        self.block_subscribers.insert(
+            subscriber_id,
+            Subscriber {
+                block_sender: sender,
+            },
+        );
+        subscriber_id
+    }
+
+    pub fn remove_block_subscriber(&self, subscriber_id: usize) {
+        println!("removing failed subscriber id={}", subscriber_id);
+        self.block_subscribers.remove(&subscriber_id);
+    }
 
     /// Returns number of connected nodes
     pub fn count(&self) -> usize {
@@ -148,7 +172,7 @@ impl Peers {
     /// Request `need` missing blocks from the specified `node`
     pub async fn synchronize_blockchain(&self, node: &str, need: u64) -> Result<()> {
         let mut entry = self.nodes.get_mut(node).expect("node name exists");
-        let (ref mut client, _) = entry.value_mut();
+        let (client, _) = entry.value_mut();
 
         let blockchain = crate::BLOCKCHAIN.read().await;
         let have = blockchain.block_height();
@@ -181,4 +205,84 @@ impl Peers {
 
         Ok(())
     }
+
+    // TODO enum SubscriptionItem
+    pub async fn broadcast(&self, item: Block) -> Result<()> {
+        let what = "block";
+        println!(
+            "broadcasting {} to {} subscribers",
+            what,
+            self.block_subscribers.len()
+        );
+
+        for subscriber in self.block_subscribers.iter() {
+            let id = subscriber.key();
+
+            subscriber
+                .block_sender
+                .send(item.clone())
+                .await
+                .with_context(|| format!("sending block to subscriber's channel (no: {})", id))?
+        }
+
+        Ok(())
+    }
+}
+
+pub async fn subscribe_to_nodes(
+    peers: Arc<Peers>,
+    tracker: TaskTracker,
+    cancel: CancellationToken,
+) -> Result<()> {
+    println!("subscribing to connected nodes...");
+
+    for mut item in peers.nodes.iter_mut() {
+        let node = item.key().clone();
+        let (client, _) = item.value_mut();
+
+        let mut stream = client
+            .subscribe_for_new_blocks(Request::new(pb::Empty {}))
+            .await
+            .context("calling subscribe_for_new_blocks RPC")?
+            .into_inner();
+
+        println!("subscription requests for new blocks sent to {node}");
+
+        let peers = Arc::clone(&peers);
+        let cancel_token = cancel.clone();
+        tracker.spawn(async move {
+            println!("subscribed to {node}");
+            tokio::select! {
+                _ = cancel_token.cancelled() => {
+                    println!("'subscribe_to_nodes for blocks' task terminated");
+                }
+                res = async {
+                    while let Some(block) = stream.message().await? {
+                        // add new block to blockchain and broadcast it to subscribers
+                        let bytes = block.cbor;
+                        let block = Block::load(&bytes[..]).context("deserialize block")?;
+                        println!("> received new block from peer {:?}", block.header.hash());
+
+                        let mut blockchain = crate::BLOCKCHAIN.write().await;
+                        if let Err(e) = blockchain.add_block(block.clone()) {
+                            eprintln!("adding new block: {}", e);
+                            continue;
+                        }
+                        blockchain.rebuild_utxo_set();
+
+                        println!("broadcasting received block to all subscribers");
+                        peers.broadcast(block)
+                            .await
+                            .context("broadcasting received block to all subscribers")?;
+                    }
+                    Ok::<_, anyhow::Error>(())
+                } => {
+                    res.inspect_err(|e| eprintln!("subscription connection to {} failed: {}", node, e.root_cause()))?;
+                }
+            }
+            Ok::<_, anyhow::Error>(())
+        });
+    }
+
+    Ok(())
 }

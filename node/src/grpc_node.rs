@@ -1,6 +1,8 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use grpc::peers;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -108,39 +110,45 @@ async fn main() -> Result<()> {
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 println!("\n>>> ctrl-c received!");
+                println!("graceful shutdown triggered");
                 tracker_clone.close();
                 token.cancel();
             }
            _= hup.recv() => {
                 println!(">>> got signal HUP");
+                println!("graceful shutdown triggered");
                 tracker_clone.close();
                 token.cancel();
             }
             _= term.recv() => {
                 println!(">>> got signal TERM");
+                println!("graceful shutdown triggered");
                 tracker_clone.close();
                 token.cancel();
             }
         }
     });
 
+    let peers = Arc::new(peers);
+
+    peers::subscribe_to_nodes(Arc::clone(&peers), tracker.clone(), cancel_token.clone()).await?;
+
     tokio::select! {
-        _ = cancel_token.cancelled() => {
-            println!("graceful shutdown triggered");
-            println!("terminating server");
-        }
         // Build and start gRPC server
         res = Server::builder()
         .add_service(reflection)
-        .add_service(grpc::node_api::create_server(peers))
-        .add_service(grpc::miner_api::create_server())
+        .add_service(grpc::node_api::create_server(Arc::clone(&peers)))
+        .add_service(grpc::miner_api::create_server(Arc::clone(&peers)))
         .serve(addr)
          => {
             res?;
         }
+        _ = cancel_token.cancelled() => {
+            println!("terminating server");
+        }
     }
 
-    println!("server ended, waiting for tasks to complete...");
+    println!("gRPC server ended, waiting for tasks to complete...");
 
     tracker.wait().await;
 

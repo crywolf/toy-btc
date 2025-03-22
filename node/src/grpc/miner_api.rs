@@ -1,7 +1,12 @@
-use crate::blockchain::BLOCKCHAIN;
+use std::sync::Arc;
 
+use super::log_error;
 use super::miner::pb;
 use super::miner::pb::miner_api_server::{MinerApi, MinerApiServer};
+use super::peers::Peers;
+use crate::blockchain::BLOCKCHAIN;
+
+use anyhow::Context;
 use btclib::blockchain::{Block, BlockHeader, Tx, TxOutput};
 use btclib::crypto::PublicKey;
 use btclib::merkle_root::MerkleRoot;
@@ -11,11 +16,13 @@ use chrono::Utc;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;
 
-pub struct MinerSvc {}
+pub struct MinerSvc {
+    peers: Arc<Peers>,
+}
 
 impl MinerSvc {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(peers: Arc<Peers>) -> Self {
+        Self { peers }
     }
 }
 
@@ -71,7 +78,7 @@ impl MinerApi for MinerSvc {
             Ok(fees) => fees,
             Err(e) => {
                 log_error(&e);
-                return Err(Status::unknown(e.to_string()));
+                return Err(Status::internal(e.to_string()));
             }
         };
         let reward = blockchain.calculate_block_reward(); // block subsidy
@@ -87,10 +94,10 @@ impl MinerApi for MinerSvc {
             .amount = reward + miner_fees;
 
         if let Err(e) =
-            template_block.verify_coinbase_transaction(blockchain.block_height() + 1, miner_fees)
+            template_block.verify_coinbase_transaction(blockchain.block_height(), miner_fees)
         {
             log_error(&e);
-            return Err(Status::unknown(e.to_string()));
+            return Err(Status::internal(e.to_string()));
         }
 
         drop(blockchain);
@@ -163,17 +170,21 @@ impl MinerApi for MinerSvc {
 
         println!("block height = {}", blockchain.block_height());
 
-        // broadcast newly mined block to all known nodes
-        // TODO
+        // broadcast newly mined block to all subscribers
+        println!("broadcasting newly mined block to all subscribers");
+        if let Err(e) = self
+            .peers
+            .broadcast(block)
+            .await
+            .context("broadcasting new block")
+        {
+            log_error(e);
+        }
 
         Ok(Response::new(pb::Empty {}))
     }
 }
 
-pub fn create_server() -> MinerApiServer<MinerSvc> {
-    MinerApiServer::new(MinerSvc::new())
-}
-
-fn log_error(e: impl std::fmt::Debug) {
-    eprintln!("Error: {:?}", e);
+pub fn create_server(peers: Arc<Peers>) -> MinerApiServer<MinerSvc> {
+    MinerApiServer::new(MinerSvc::new(peers))
 }

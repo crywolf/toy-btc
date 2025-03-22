@@ -16,3 +16,7 @@ pub mod miner {
         tonic::include_proto!("miner");
     }
 }
+
+fn log_error(e: impl std::fmt::Debug) {
+    eprintln!("Error: {:?}", e);
+}

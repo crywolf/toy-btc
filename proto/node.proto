@@ -11,6 +11,9 @@ service NodeApi {
 
     // Ask a node to send stream of blocks starting from the specified height
     rpc FetchBlocks(FetchBlockIntervalRequest) returns (stream Block);
+
+    // Ask a node to send stream of newly received blocks
+    rpc SubscribeForNewBlocks(Empty) returns (stream Block);
 }
 
 message Empty {}
