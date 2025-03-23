@@ -23,8 +23,8 @@ pub struct Subscriber {
 pub struct Peers {
     listener_addr: String,
 
-    /// DashMap<conn addr, (grpc client, Option<skip_source_addr>)>
-    nodes: DashMap<String, (NodeApiClient<Channel>, Option<String>)>,
+    /// DashMap<node addr, grpc client>
+    nodes: DashMap<String, NodeApiClient<Channel>>,
 
     pub subscribers: DashMap<usize, Subscriber>,
 }
@@ -108,14 +108,14 @@ impl Peers {
                             .with_context(|| format!("connecting to {child_node}"))?;
 
                         println!("adding '{}' to the list of connected nodes", child_node);
-                        self.nodes.insert(child_node, (client, None));
+                        self.nodes.insert(child_node, client);
                     }
                 }
             }
             // do not add itself (it might happen when reconnecting)
             if node != self.listener_addr() {
                 println!("adding '{}' to the list of connected nodes", node);
-                self.nodes.insert(node.clone(), (client, None));
+                self.nodes.insert(node.clone(), client);
             }
         }
 
@@ -141,7 +141,7 @@ impl Peers {
                 .get_mut(&node)
                 .context("missing node in the pool")?;
 
-            let (ref mut client, _) = entry.value_mut();
+            let client = entry.value_mut();
 
             let blockchain = crate::BLOCKCHAIN.read().await;
             let height = blockchain.block_height();
@@ -172,7 +172,7 @@ impl Peers {
     /// Request `need` missing blocks from the specified `node`
     pub async fn synchronize_blockchain(&self, node: &str, need: u64) -> Result<()> {
         let mut entry = self.nodes.get_mut(node).expect("node name exists");
-        let (client, _) = entry.value_mut();
+        let client = entry.value_mut();
 
         let blockchain = crate::BLOCKCHAIN.read().await;
         let have = blockchain.block_height();
@@ -235,7 +235,7 @@ pub async fn subscribe_to_nodes(
 
     for mut item in peers.nodes.iter_mut() {
         let node = item.key().clone();
-        let (client, _) = item.value_mut();
+        let client = item.value_mut();
 
         let mut stream = client
             .subscribe_for_new_items(Request::new(pb::Empty {}))
