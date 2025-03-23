@@ -1398,6 +1398,7 @@ dependencies = [
  "dashmap",
  "prost",
  "static_init",
+ "strum",
  "tokio",
  "tokio-stream",
  "tokio-util",

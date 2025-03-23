@@ -85,43 +85,60 @@ impl NodeApi for NodeSvc {
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
-    type SubscribeForNewBlocksStream = ReceiverStream<Result<pb::Block, Status>>;
+    type SubscribeForNewItemsStream = ReceiverStream<Result<pb::NewItemResponse, Status>>;
 
-    /// Ask a node to send stream of newly received blocks
-    async fn subscribe_for_new_blocks(
+    /// Ask a node to send stream of newly received items (blocks and transactions)
+    async fn subscribe_for_new_items(
         &self,
         _request: Request<pb::Empty>,
-    ) -> Result<Response<Self::SubscribeForNewBlocksStream>, Status> {
+    ) -> Result<Response<Self::SubscribeForNewItemsStream>, Status> {
         // store subscriber's sender part of the channel
         let (subscriber_tx, mut subscriber_rx) = mpsc::channel(1);
-        let subscriber_id = self.peers.add_block_subscriber(subscriber_tx);
+        let subscriber_id = self.peers.add_subscriber(subscriber_tx);
         println!(
-            "subscription for new blocks received, n_subscribers: {}",
-            self.peers.block_subscribers.len()
+            "subscription request received, n_subscribers: {}",
+            self.peers.subscribers.len()
         );
 
         let (stream_tx, stream_rx) = mpsc::channel(1);
 
         let peers = Arc::clone(&self.peers);
         tokio::spawn(async move {
-            // when subscriber's receiver got a new block, send it to the stream sender
-            while let Some(block) = subscriber_rx.recv().await {
-                println!("sending block to subscriber {}", subscriber_id);
-                let mut bytes = Vec::new();
-                if let Err(e) = block.save(&mut bytes).context("serialize block") {
-                    log_error(&e);
-                    continue;
-                }
+            // when subscriber's receiver got a new item, send it to the stream sender
+            while let Some(item) = subscriber_rx.recv().await {
+                let (bytes, item_type) = match item {
+                    SubscriptionItem::Block(block) => {
+                        let mut bytes = Vec::new();
+                        if let Err(e) = block.save(&mut bytes).context("serialize block") {
+                            log_error(&e);
+                            continue;
+                        }
+                        (bytes, pb::ItemType::Block)
+                    }
+                    SubscriptionItem::Transaction(tx) => {
+                        let mut bytes = Vec::new();
+                        if let Err(e) = tx.save(&mut bytes).context("serialize transaction") {
+                            log_error(&e);
+                            continue;
+                        }
+                        (bytes, pb::ItemType::Transaction)
+                    }
+                };
 
-                let block = pb::Block { cbor: bytes };
+                let item_response = pb::NewItemResponse {
+                    item_type: item_type.into(),
+                    item: Some(pb::Item { cbor: bytes }),
+                };
 
-                if let Err(e) = stream_tx.send(Ok(block)).await {
+                println!("sending {:?} to subscriber {}", item_type, subscriber_id);
+
+                if let Err(e) = stream_tx.send(Ok(item_response)).await {
                     eprintln!(
-                        "failed to send block to subscriber {}: {}",
-                        subscriber_id, e
+                        "failed to send {:?} to subscriber {}: {}",
+                        item_type, subscriber_id, e
                     );
                     // remove failed subscriber
-                    peers.remove_block_subscriber(subscriber_id);
+                    peers.remove_subscriber(subscriber_id);
                 }
             }
         });
@@ -132,4 +149,10 @@ impl NodeApi for NodeSvc {
 
 pub fn create_server(peers: Arc<Peers>) -> NodeApiServer<NodeSvc> {
     NodeApiServer::new(NodeSvc::new(peers))
+}
+
+#[derive(Clone, strum::Display)]
+pub enum SubscriptionItem {
+    Block(btclib::blockchain::Block),
+    Transaction(btclib::blockchain::Tx),
 }

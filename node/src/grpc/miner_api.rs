@@ -5,6 +5,7 @@ use super::miner::pb;
 use super::miner::pb::miner_api_server::{MinerApi, MinerApiServer};
 use super::peers::Peers;
 use crate::blockchain::BLOCKCHAIN;
+use crate::grpc::node_api::SubscriptionItem;
 
 use anyhow::Context;
 use btclib::blockchain::{Block, BlockHeader, Tx, TxOutput};
@@ -174,7 +175,7 @@ impl MinerApi for MinerSvc {
         println!("broadcasting newly mined block to all subscribers");
         if let Err(e) = self
             .peers
-            .broadcast(block)
+            .broadcast(SubscriptionItem::Block(block))
             .await
             .context("broadcasting new block")
         {

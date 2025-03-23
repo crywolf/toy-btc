@@ -12,8 +12,8 @@ service NodeApi {
     // Ask a node to send stream of blocks starting from the specified height
     rpc FetchBlocks(FetchBlockIntervalRequest) returns (stream Block);
 
-    // Ask a node to send stream of newly received blocks
-    rpc SubscribeForNewBlocks(Empty) returns (stream Block);
+    // Ask a node to send stream of newly received items (blocks and transactions)
+    rpc SubscribeForNewItems(Empty) returns (stream NewItemResponse);
 }
 
 message Empty {}
@@ -40,4 +40,20 @@ message FetchBlockIntervalRequest {
 
 message Block {
     bytes cbor = 1;
+}
+
+enum ItemType {
+  ITEM_TYPE_UNSPECIFIED = 0;
+  ITEM_TYPE_BLOCK = 1;
+  ITEM_TYPE_TRANSACTION = 2;
+}
+
+// Block or transaction
+message Item {
+    bytes cbor = 1;
+}
+
+message NewItemResponse {
+    ItemType item_type = 1;
+    Item item = 2;
 }

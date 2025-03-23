@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use btclib::blockchain::{Block, Tx};
 use btclib::Saveable;
 use dashmap::DashMap;
@@ -11,12 +11,12 @@ use tokio_util::task::TaskTracker;
 use tonic::transport::Channel;
 use tonic::Request;
 
-use super::log_error;
 use super::node::pb;
 use super::node::pb::node_api_client::NodeApiClient;
+use super::node_api::SubscriptionItem;
 
 pub struct Subscriber {
-    block_sender: mpsc::Sender<Block>,
+    channel_sender: mpsc::Sender<SubscriptionItem>,
 }
 
 /// Connected peer nodes
@@ -26,7 +26,7 @@ pub struct Peers {
     /// DashMap<conn addr, (grpc client, Option<skip_source_addr>)>
     nodes: DashMap<String, (NodeApiClient<Channel>, Option<String>)>,
 
-    pub block_subscribers: DashMap<usize, Subscriber>,
+    pub subscribers: DashMap<usize, Subscriber>,
 }
 
 impl Peers {
@@ -34,7 +34,7 @@ impl Peers {
         Self {
             listener_addr: format!("{host}:{port}"),
             nodes: DashMap::new(),
-            block_subscribers: DashMap::default(),
+            subscribers: DashMap::default(),
         }
     }
 
@@ -42,21 +42,21 @@ impl Peers {
         &self.listener_addr
     }
 
-    pub fn add_block_subscriber(&self, sender: mpsc::Sender<Block>) -> usize {
+    pub fn add_subscriber(&self, sender: mpsc::Sender<SubscriptionItem>) -> usize {
         static COUNTER: AtomicUsize = AtomicUsize::new(1);
         let subscriber_id = COUNTER.fetch_add(1, Ordering::Relaxed);
-        self.block_subscribers.insert(
+        self.subscribers.insert(
             subscriber_id,
             Subscriber {
-                block_sender: sender,
+                channel_sender: sender,
             },
         );
         subscriber_id
     }
 
-    pub fn remove_block_subscriber(&self, subscriber_id: usize) {
+    pub fn remove_subscriber(&self, subscriber_id: usize) {
         println!("removing failed subscriber id={}", subscriber_id);
-        self.block_subscribers.remove(&subscriber_id);
+        self.subscribers.remove(&subscriber_id);
     }
 
     /// Returns number of connected nodes
@@ -206,23 +206,20 @@ impl Peers {
         Ok(())
     }
 
-    // TODO enum SubscriptionItem
-    pub async fn broadcast(&self, item: Block) -> Result<()> {
-        let what = "block";
+    pub async fn broadcast(&self, item: SubscriptionItem) -> Result<()> {
         println!(
-            "broadcasting {} to {} subscribers",
-            what,
-            self.block_subscribers.len()
+            "broadcasting {item} to {} subscribers",
+            self.subscribers.len()
         );
 
-        for subscriber in self.block_subscribers.iter() {
+        for subscriber in self.subscribers.iter() {
             let id = subscriber.key();
 
             subscriber
-                .block_sender
+                .channel_sender
                 .send(item.clone())
                 .await
-                .with_context(|| format!("sending block to subscriber's channel (no: {})", id))?
+                .with_context(|| format!("sending {item} to subscriber's channel (no: {})", id))?
         }
 
         Ok(())
@@ -241,12 +238,12 @@ pub async fn subscribe_to_nodes(
         let (client, _) = item.value_mut();
 
         let mut stream = client
-            .subscribe_for_new_blocks(Request::new(pb::Empty {}))
+            .subscribe_for_new_items(Request::new(pb::Empty {}))
             .await
-            .context("calling subscribe_for_new_blocks RPC")?
+            .context("calling subscribe_for_new_items RPC")?
             .into_inner();
 
-        println!("subscription requests for new blocks sent to {node}");
+        println!("subscription request for new items sent to {node}");
 
         let peers = Arc::clone(&peers);
         let cancel_token = cancel.clone();
@@ -254,30 +251,58 @@ pub async fn subscribe_to_nodes(
             println!("subscribed to {node}");
             tokio::select! {
                 _ = cancel_token.cancelled() => {
-                    println!("'subscribe_to_nodes for blocks' task terminated");
+                    println!("'subscribe_to_nodes for new items' task terminated");
                 }
                 res = async {
-                    while let Some(block) = stream.message().await? {
-                        // add new block to blockchain and broadcast it to subscribers
-                        let bytes = block.cbor;
-                        let block = Block::load(&bytes[..]).context("deserialize block")?;
-                        println!("> received new block from peer {:?}", block.header.hash());
+                    while let Some(item_response) = stream.message().await? {
+                        let item_type = pb::ItemType::try_from(item_response.item_type)?;
 
-                        let mut blockchain = crate::BLOCKCHAIN.write().await;
-                        if let Err(e) = blockchain.add_block(block.clone()) {
-                            eprintln!("adding new block: {}", e);
-                            continue;
-                        }
-                        blockchain.rebuild_utxo_set();
+                        let item = item_response.item.ok_or(anyhow!("missing item field"))?;
+                        let bytes = item.cbor;
 
-                        println!("broadcasting received block to all subscribers");
-                        peers.broadcast(block)
+                        let item = match item_type {
+                            pb::ItemType::Block => {
+                                let block = Block::load(&bytes[..]).context("deserialize block")?;
+                                println!("> received new block from peer {:?}", block.header.hash());
+
+                                let mut blockchain = crate::BLOCKCHAIN.write().await;
+                                if let Err(e) = blockchain.add_block(block.clone()) {
+                                    eprintln!("adding new block: {}", e);
+                                    continue;
+                                }
+                                blockchain.rebuild_utxo_set();
+                                SubscriptionItem::Block(block)
+                            },
+                            pb::ItemType::Transaction => {
+                                println!("> new transaction from peer, adding to mempool");
+                                let transaction = Tx::load(&bytes[..]).context("deserialize transaction")?;
+                                let mut blockchain = crate::BLOCKCHAIN.write().await;
+                                if let Err(e) = blockchain.add_to_mempool(transaction.clone()) {
+                                    match e {
+                                        btclib::error::BtcError::TxAlreadyInMempool(_) => {
+                                            eprintln!("transaction rejected: {e}");
+                                            continue;
+                                        }
+                                        _ => {
+                                            bail!("transaction rejected: {e}, closing connection");
+                                        }
+                                    }
+                                }
+                                SubscriptionItem::Transaction(transaction)
+                            },
+                            pb::ItemType::Unspecified => bail!("received incorrect item type: {:?}", item_type),
+                        };
+
+                        let msg = format!("broadcasting received {item} to all subscribers");
+                        println!("{msg}");
+
+                        peers.broadcast(item)
                             .await
-                            .context("broadcasting received block to all subscribers")?;
+                            .context(msg)?;
                     }
                     Ok::<_, anyhow::Error>(())
                 } => {
-                    res.inspect_err(|e| eprintln!("subscription connection to {} failed: {}", node, e.root_cause()))?;
+                    res.inspect_err(|e| eprintln!("subscription connection to {node} failed: {}", e.root_cause()))?;
                 }
             }
             Ok::<_, anyhow::Error>(())
