@@ -33,7 +33,7 @@ impl WalletApi for WalletSvc {
     ) -> Result<Response<pb::FetchUtxosResponse>, Status> {
         println!("gRPC: received request to fetch UTXOs");
         let pubkey_bytes = request.into_inner().pubkey;
-        let pubkey = PublicKey::load(&pubkey_bytes[..])?;
+        let pubkey = PublicKey::deserialize(&pubkey_bytes[..])?;
 
         let blockchain = BLOCKCHAIN.read().await;
         let utxos = blockchain
@@ -42,7 +42,7 @@ impl WalletApi for WalletSvc {
             .map(|(txout, marked)| {
                 let mut txout_bytes = Vec::new();
                 if let Err(e) = txout
-                    .save(&mut txout_bytes)
+                    .serialize(&mut txout_bytes)
                     .context("serialize transaction output")
                 {
                     log_error(&e);
@@ -64,7 +64,7 @@ impl WalletApi for WalletSvc {
         request: Request<pb::Transaction>,
     ) -> Result<Response<pb::Empty>, Status> {
         let bytes = request.into_inner().cbor;
-        let transaction = Tx::load(&bytes[..])?;
+        let transaction = Tx::deserialize(&bytes[..])?;
 
         println!(
             "gRPC: new transaction was submitted, {:?}",

@@ -174,7 +174,7 @@ impl Block {
 
 /// Save and load expecting CBOR from ciborium as format
 impl Serializable for Block {
-    fn load<R: std::io::Read>(reader: R) -> std::io::Result<Self> {
+    fn deserialize<R: std::io::Read>(reader: R) -> std::io::Result<Self> {
         ciborium::de::from_reader(reader).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -183,7 +183,7 @@ impl Serializable for Block {
         })
     }
 
-    fn save<W: std::io::Write>(&self, writer: W) -> std::io::Result<()> {
+    fn serialize<W: std::io::Write>(&self, writer: W) -> std::io::Result<()> {
         ciborium::ser::into_writer(self, writer).map_err(|_| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to serialize Block")
         })

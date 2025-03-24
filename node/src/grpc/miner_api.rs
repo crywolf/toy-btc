@@ -35,7 +35,7 @@ impl MinerApi for MinerSvc {
         request: Request<pb::FetchTemplateRequest>,
     ) -> Result<Response<pb::Template>, Status> {
         let pubkey_bytes = request.into_inner().pubkey;
-        let pubkey = PublicKey::load(&pubkey_bytes[..])?;
+        let pubkey = PublicKey::deserialize(&pubkey_bytes[..])?;
         println!("gRPC: fetch template called for {:?}", pubkey);
 
         let blockchain = BLOCKCHAIN.read().await;
@@ -107,7 +107,7 @@ impl MinerApi for MinerSvc {
         template_block.header.merkle_root = MerkleRoot::calculate(&template_block.transactions);
 
         let mut template_bytes = Vec::new();
-        template_block.save(&mut template_bytes)?;
+        template_block.serialize(&mut template_bytes)?;
 
         Ok(Response::new(pb::Template {
             cbor: template_bytes,
@@ -120,7 +120,7 @@ impl MinerApi for MinerSvc {
         request: Request<pb::Template>,
     ) -> Result<Response<pb::ValidateTemplateResponse>, Status> {
         let template_bytes = request.into_inner().cbor;
-        let block_template = Block::load(&template_bytes[..])?;
+        let block_template = Block::deserialize(&template_bytes[..])?;
         println!(
             "gRPC: validate template called {}",
             block_template.header.hash()
@@ -154,7 +154,7 @@ impl MinerApi for MinerSvc {
         request: Request<pb::Template>,
     ) -> Result<Response<pb::Empty>, Status> {
         let template_bytes = request.into_inner().cbor;
-        let block = Block::load(&template_bytes[..])?;
+        let block = Block::deserialize(&template_bytes[..])?;
 
         println!(
             "gRPC: received newly mined template from a miner, {:?}",

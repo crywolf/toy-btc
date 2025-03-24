@@ -12,7 +12,7 @@ fn main() -> Result<(), Error> {
     };
 
     let file = std::fs::File::open(path)?;
-    let tx = Tx::load(file)?;
+    let tx = Tx::deserialize(file)?;
     println!("{:#?}", tx);
 
     Ok(())

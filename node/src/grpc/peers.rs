@@ -192,7 +192,7 @@ impl Peers {
 
         while let Some(block) = stream.message().await? {
             let bytes = block.cbor;
-            let block = Block::load(&bytes[..]).context("deserialize block")?;
+            let block = Block::deserialize(&bytes[..]).context("deserialize block")?;
             println!("> fetched block {:?}", block.header.hash());
 
             let mut blockchain = crate::BLOCKCHAIN.write().await;
@@ -262,7 +262,7 @@ pub async fn subscribe_to_nodes(
 
                         let item = match item_type {
                             pb::ItemType::Block => {
-                                let block = Block::load(&bytes[..]).context("deserialize block")?;
+                                let block = Block::deserialize(&bytes[..]).context("deserialize block")?;
                                 println!("> received new block from peer {:?}", block.header.hash());
 
                                 let mut blockchain = crate::BLOCKCHAIN.write().await;
@@ -275,7 +275,7 @@ pub async fn subscribe_to_nodes(
                             },
                             pb::ItemType::Transaction => {
                                 println!("> new transaction from peer, adding to mempool");
-                                let transaction = Tx::load(&bytes[..]).context("deserialize transaction")?;
+                                let transaction = Tx::deserialize(&bytes[..]).context("deserialize transaction")?;
                                 let mut blockchain = crate::BLOCKCHAIN.write().await;
                                 if let Err(e) = blockchain.add_to_mempool(transaction.clone()) {
                                     match e {

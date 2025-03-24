@@ -114,7 +114,7 @@ impl Miner {
 
         let mut bytes = Vec::new();
         self.public_key
-            .save(&mut bytes)
+            .serialize(&mut bytes)
             .context("serialize public key")?;
 
         let response = self
@@ -124,7 +124,8 @@ impl Miner {
             .context("calling fetch_template RPC")?;
 
         let template_bytes = response.into_inner().cbor;
-        let template = Block::load(&template_bytes[..]).context("deserialize block template")?;
+        let template =
+            Block::deserialize(&template_bytes[..]).context("deserialize block template")?;
 
         println!(
             "Received new template with target: {}",
@@ -142,7 +143,7 @@ impl Miner {
         if let Some(template) = current_template {
             let mut template_bytes = Vec::new();
             template
-                .save(&mut template_bytes)
+                .serialize(&mut template_bytes)
                 .context("serializing block template")?;
 
             let response = self
@@ -173,7 +174,7 @@ impl Miner {
 
         let mut template_bytes = Vec::new();
         block
-            .save(&mut template_bytes)
+            .serialize(&mut template_bytes)
             .context("serializing block template")?;
 
         let _response = self

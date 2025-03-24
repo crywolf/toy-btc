@@ -183,7 +183,7 @@ impl Core {
                 // GRPC
                 Connection::GrpcClient(client) => {
                     let mut pubkey_bytes = Vec::new();
-                    key.public.save(&mut pubkey_bytes)?;
+                    Serializable::serialize(&key.public, &mut pubkey_bytes)?;
 
                     let response = client
                         .lock()
@@ -199,8 +199,9 @@ impl Core {
                     let utxos = utxos
                         .into_iter()
                         .map(|utxo| {
-                            let tx_output = TxOutput::load(&utxo.tx_output[..])
-                                .context("deserialize transaction output")?;
+                            let tx_output: TxOutput =
+                                Serializable::deserialize(&utxo.tx_output[..])
+                                    .context("deserialize transaction output")?;
                             let in_mempool = utxo.in_mempool;
                             Ok::<(bool, TxOutput), anyhow::Error>((in_mempool, tx_output))
                         })
@@ -231,7 +232,7 @@ impl Core {
             // GRPC
             Connection::GrpcClient(client) => {
                 let mut bytes = Vec::new();
-                transaction.save(&mut bytes)?;
+                Serializable::serialize(&transaction, &mut bytes)?;
                 client
                     .lock()
                     .await

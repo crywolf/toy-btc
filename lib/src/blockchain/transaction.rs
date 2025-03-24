@@ -48,7 +48,7 @@ impl Tx {
 
 /// Save and load expecting CBOR from ciborium as format
 impl Serializable for Tx {
-    fn load<R: std::io::Read>(reader: R) -> std::io::Result<Self> {
+    fn deserialize<R: std::io::Read>(reader: R) -> std::io::Result<Self> {
         ciborium::de::from_reader(reader).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -57,7 +57,7 @@ impl Serializable for Tx {
         })
     }
 
-    fn save<W: std::io::Write>(&self, writer: W) -> std::io::Result<()> {
+    fn serialize<W: std::io::Write>(&self, writer: W) -> std::io::Result<()> {
         ciborium::ser::into_writer(self, writer).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -94,7 +94,7 @@ impl TxOutput {
 
 /// Save and load expecting CBOR from ciborium as format
 impl Serializable for TxOutput {
-    fn load<R: std::io::Read>(reader: R) -> std::io::Result<Self> {
+    fn deserialize<R: std::io::Read>(reader: R) -> std::io::Result<Self> {
         ciborium::de::from_reader(reader).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -103,7 +103,7 @@ impl Serializable for TxOutput {
         })
     }
 
-    fn save<W: std::io::Write>(&self, writer: W) -> std::io::Result<()> {
+    fn serialize<W: std::io::Write>(&self, writer: W) -> std::io::Result<()> {
         ciborium::ser::into_writer(self, writer).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,

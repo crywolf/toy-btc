@@ -64,7 +64,7 @@ impl NodeApi for NodeSvc {
             let blocks = blockchain.blocks().skip(start).take(n_blocks);
             for block in blocks {
                 let mut bytes = Vec::new();
-                if let Err(e) = block.save(&mut bytes).context("serialize block") {
+                if let Err(e) = block.serialize(&mut bytes).context("serialize block") {
                     log_error(&e);
                     if let Err(e) = tx
                         .send(Err(Status::internal(e.to_string())))
@@ -110,7 +110,7 @@ impl NodeApi for NodeSvc {
                 let (bytes, item_type) = match item {
                     SubscriptionItem::Block(block) => {
                         let mut bytes = Vec::new();
-                        if let Err(e) = block.save(&mut bytes).context("serialize block") {
+                        if let Err(e) = block.serialize(&mut bytes).context("serialize block") {
                             log_error(&e);
                             continue;
                         }
@@ -118,7 +118,7 @@ impl NodeApi for NodeSvc {
                     }
                     SubscriptionItem::Transaction(tx) => {
                         let mut bytes = Vec::new();
-                        if let Err(e) = tx.save(&mut bytes).context("serialize transaction") {
+                        if let Err(e) = tx.serialize(&mut bytes).context("serialize transaction") {
                             log_error(&e);
                             continue;
                         }
