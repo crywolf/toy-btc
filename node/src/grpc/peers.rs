@@ -193,7 +193,6 @@ impl Peers {
         while let Some(block) = stream.message().await? {
             let bytes = block.cbor;
             let block = Block::deserialize(&bytes[..]).context("deserialize block")?;
-            println!("> fetched block {:?}", block.header.hash());
 
             let mut blockchain = crate::BLOCKCHAIN.write().await;
             blockchain.add_block(block).context("add new block")?;
