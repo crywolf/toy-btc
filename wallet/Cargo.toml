@@ -2,6 +2,7 @@
 name = "good-wallet"
 version = "0.1.0"
 edition = "2021"
+build = "../build.rs"
 
 [dependencies]
 btclib = { version = "0.1.0", path = "../lib" }
@@ -18,3 +19,8 @@ cursive = "0.21.1"
 tracing = "0.1.41"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "fmt"] }
+prost = "0.13.5"
+tonic = "0.12.3"
+
+[build-dependencies]
+tonic-build = "0.12.3"

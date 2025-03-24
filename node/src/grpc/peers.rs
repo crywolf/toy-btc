@@ -87,7 +87,7 @@ impl Peers {
                 .discover_nodes(request)
                 .await
                 .context("calling discover_nodes RPC")?;
-            println!("sent DiscoverNodes to {}", node);
+            println!("sent DiscoverNodes request to {}", node);
 
             let child_nodes = response.into_inner().nodes;
 

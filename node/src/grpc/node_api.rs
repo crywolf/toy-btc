@@ -1,15 +1,16 @@
 use std::sync::Arc;
 
-use super::log_error;
-use super::node::pb;
-use super::node::pb::node_api_server::{NodeApi, NodeApiServer};
-use super::peers::Peers;
-use crate::blockchain::BLOCKCHAIN;
 use anyhow::{Context, Result};
 use btclib::Saveable;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
+
+use super::log_error;
+use super::node::pb;
+use super::node::pb::node_api_server::{NodeApi, NodeApiServer};
+use super::peers::Peers;
+use crate::blockchain::BLOCKCHAIN;
 
 pub struct NodeSvc {
     peers: Arc<Peers>,

@@ -6,7 +6,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tonic_build::configure()
         .file_descriptor_set_path(out_dir.join("reflection_descriptor.bin"))
         .compile_protos(
-            &["../proto/node.proto", "../proto/miner.proto"],
+            &[
+                "../proto/node.proto",
+                "../proto/miner.proto",
+                "../proto/wallet.proto",
+            ],
             &["../proto"],
         )?;
 

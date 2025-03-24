@@ -66,6 +66,7 @@ impl Saveable for Tx {
         })
     }
 }
+
 /// Transaction input
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct TxInput {
@@ -88,5 +89,26 @@ pub struct TxOutput {
 impl TxOutput {
     pub fn hash(&self) -> Hash {
         Hash::hash(&self)
+    }
+}
+
+/// Save and load expecting CBOR from ciborium as format
+impl Saveable for TxOutput {
+    fn load<R: std::io::Read>(reader: R) -> std::io::Result<Self> {
+        ciborium::de::from_reader(reader).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Failed to deserialize Transaction output",
+            )
+        })
+    }
+
+    fn save<W: std::io::Write>(&self, writer: W) -> std::io::Result<()> {
+        ciborium::ser::into_writer(self, writer).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Failed to serialize Transaction output",
+            )
+        })
     }
 }

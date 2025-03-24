@@ -139,6 +139,7 @@ async fn main() -> Result<()> {
         .add_service(reflection)
         .add_service(grpc::node_api::create_server(Arc::clone(&peers)))
         .add_service(grpc::miner_api::create_server(Arc::clone(&peers)))
+        .add_service(grpc::wallet_api::create_server(Arc::clone(&peers)))
         .serve(addr)
          => {
             res?;
