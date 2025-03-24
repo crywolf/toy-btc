@@ -7,7 +7,7 @@ use k256::Secp256k1;
 use serde::{Deserialize, Serialize};
 use spki::EncodePublicKey;
 
-use crate::{sha256::Hash, Saveable};
+use crate::{sha256::Hash, Saveable, Serializable};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Signature(ECDSASignature<Secp256k1>);
@@ -30,7 +30,7 @@ impl Signature {
 pub struct PublicKey(VerifyingKey<Secp256k1>);
 
 // save and load as PEM
-impl Saveable for PublicKey {
+impl Serializable for PublicKey {
     fn load<R: std::io::Read>(mut reader: R) -> std::io::Result<Self> {
         // read PEM-encoded public key into string
         let mut buf = String::new();
@@ -56,6 +56,8 @@ impl Saveable for PublicKey {
     }
 }
 
+impl Saveable for PublicKey {}
+
 impl std::fmt::Debug for PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("PublicKey")
@@ -80,7 +82,7 @@ impl PrivateKey {
 }
 
 /// Save and load expecting CBOR from ciborium as format
-impl Saveable for PrivateKey {
+impl Serializable for PrivateKey {
     fn load<R: std::io::Read>(reader: R) -> std::io::Result<Self> {
         ciborium::de::from_reader(reader).map_err(|_| {
             std::io::Error::new(
@@ -99,6 +101,8 @@ impl Saveable for PrivateKey {
         })
     }
 }
+
+impl Saveable for PrivateKey {}
 
 mod signkey_serde {
     use super::{Secp256k1, SigningKey};

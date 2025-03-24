@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use btclib::blockchain::{Tx, TxInput, TxOutput};
 use btclib::crypto::{PrivateKey, PublicKey, Signature};
 use btclib::network::Message;
-use btclib::Saveable;
+use btclib::{Saveable, Serializable};
 use config::{Config, FeeType};
 use grpc::pb;
 use grpc::pb::wallet_api_client::WalletApiClient;

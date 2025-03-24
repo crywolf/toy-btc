@@ -6,7 +6,7 @@ use crate::{
     crypto::{PublicKey, Signature},
     error::{BtcError, Result},
     sha256::Hash,
-    Saveable,
+    Saveable, Serializable,
 };
 
 /// Transaction
@@ -47,7 +47,7 @@ impl Tx {
 }
 
 /// Save and load expecting CBOR from ciborium as format
-impl Saveable for Tx {
+impl Serializable for Tx {
     fn load<R: std::io::Read>(reader: R) -> std::io::Result<Self> {
         ciborium::de::from_reader(reader).map_err(|_| {
             std::io::Error::new(
@@ -93,7 +93,7 @@ impl TxOutput {
 }
 
 /// Save and load expecting CBOR from ciborium as format
-impl Saveable for TxOutput {
+impl Serializable for TxOutput {
     fn load<R: std::io::Read>(reader: R) -> std::io::Result<Self> {
         ciborium::de::from_reader(reader).map_err(|_| {
             std::io::Error::new(
@@ -112,3 +112,5 @@ impl Saveable for TxOutput {
         })
     }
 }
+
+impl Saveable for Tx {}

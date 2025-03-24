@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{BtcError, Result};
 use crate::merkle_root::MerkleRoot;
 use crate::sha256::Hash;
-use crate::{Saveable, HALVING_INTERVAL, INITIAL_REWARD, U256};
+use crate::{Saveable, Serializable, HALVING_INTERVAL, INITIAL_REWARD, U256};
 
 use super::transaction::Tx;
 use super::UtxoSet;
@@ -173,7 +173,7 @@ impl Block {
 }
 
 /// Save and load expecting CBOR from ciborium as format
-impl Saveable for Block {
+impl Serializable for Block {
     fn load<R: std::io::Read>(reader: R) -> std::io::Result<Self> {
         ciborium::de::from_reader(reader).map_err(|_| {
             std::io::Error::new(
@@ -189,6 +189,8 @@ impl Saveable for Block {
         })
     }
 }
+
+impl Saveable for Block {}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BlockHeader {

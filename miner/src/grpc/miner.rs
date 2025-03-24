@@ -5,7 +5,7 @@ use std::thread;
 use anyhow::{Context, Result};
 use btclib::blockchain::Block;
 use btclib::crypto::PublicKey;
-use btclib::Saveable;
+use btclib::Serializable;
 use pb::miner_api_client::MinerApiClient;
 use tokio::time::{interval, Duration};
 use tokio_util::sync::CancellationToken;

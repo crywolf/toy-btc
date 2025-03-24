@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use btclib::blockchain::Tx;
 use btclib::crypto::PublicKey;
-use btclib::Saveable;
+use btclib::Serializable;
 
 use tonic::{Request, Response, Status};
 

@@ -12,7 +12,7 @@ use btclib::blockchain::{Block, BlockHeader, Tx, TxOutput};
 use btclib::crypto::PublicKey;
 use btclib::merkle_root::MerkleRoot;
 use btclib::sha256::Hash;
-use btclib::Saveable;
+use btclib::Serializable;
 use chrono::Utc;
 use tonic::{Request, Response, Status};
 use uuid::Uuid;

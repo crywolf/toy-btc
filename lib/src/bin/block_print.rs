@@ -1,7 +1,7 @@
 use std::io::Error;
 
 use btclib::blockchain::Block;
-use btclib::Saveable;
+use btclib::Serializable;
 
 fn main() -> Result<(), Error> {
     let path = if let Some(arg) = std::env::args().nth(1) {
