@@ -13,7 +13,7 @@ service NodeApi {
     rpc FetchBlocks(FetchBlockIntervalRequest) returns (stream Block);
 
     // Ask a node to send stream of newly received items (blocks and transactions)
-    rpc SubscribeForNewItems(Empty) returns (stream NewItemResponse);
+    rpc SubscribeForNewItems(SubscriptionRequest) returns (stream NewItemResponse);
 }
 
 message Empty {}
@@ -40,6 +40,10 @@ message FetchBlockIntervalRequest {
 
 message Block {
     bytes cbor = 1;
+}
+
+message SubscriptionRequest {
+    string addr = 1;
 }
 
 enum ItemType {

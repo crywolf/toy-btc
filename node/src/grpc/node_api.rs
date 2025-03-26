@@ -91,14 +91,20 @@ impl NodeApi for NodeSvc {
     /// Ask a node to send stream of newly received items (blocks and transactions)
     async fn subscribe_for_new_items(
         &self,
-        _request: Request<pb::Empty>,
+        request: Request<pb::SubscriptionRequest>,
     ) -> Result<Response<Self::SubscribeForNewItemsStream>, Status> {
+        let subscriber_listener_addr = request.into_inner().addr;
+
         // store subscriber's sender part of the channel
         let (subscriber_tx, mut subscriber_rx) = mpsc::channel(1);
-        let subscriber_id = self.peers.add_subscriber(subscriber_tx);
+        let subscriber_id = self
+            .peers
+            .add_subscriber(&subscriber_listener_addr, subscriber_tx);
+
         println!(
-            "subscription request received, n_subscribers: {}",
-            self.peers.subscribers.len()
+            "subscription request from {} received, n_subscribers: {}",
+            subscriber_listener_addr,
+            self.peers.subscriber_count()
         );
 
         let (stream_tx, stream_rx) = mpsc::channel(1);
@@ -139,7 +145,7 @@ impl NodeApi for NodeSvc {
                         item_type, subscriber_id, e
                     );
                     // remove failed subscriber
-                    peers.remove_subscriber(subscriber_id);
+                    peers.remove_subscriber(&subscriber_id);
                 }
             }
         });

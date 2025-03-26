@@ -3,9 +3,9 @@ use std::sync::Arc;
 use super::log_error;
 use super::miner::pb;
 use super::miner::pb::miner_api_server::{MinerApi, MinerApiServer};
+use super::node_api::SubscriptionItem;
 use super::peers::Peers;
 use crate::blockchain::BLOCKCHAIN;
-use crate::grpc::node_api::SubscriptionItem;
 
 use anyhow::Context;
 use btclib::blockchain::{Block, BlockHeader, Tx, TxOutput};
@@ -157,7 +157,7 @@ impl MinerApi for MinerSvc {
         let block = Block::deserialize(&template_bytes[..])?;
 
         println!(
-            "gRPC: received newly mined template from a miner, {:?}",
+            "gRPC: received newly mined template from a miner ({})",
             block.header.hash()
         );
         let mut blockchain = BLOCKCHAIN.write().await;
@@ -175,7 +175,7 @@ impl MinerApi for MinerSvc {
         println!("broadcasting newly mined block to all subscribers");
         if let Err(e) = self
             .peers
-            .broadcast(SubscriptionItem::Block(block))
+            .broadcast(SubscriptionItem::Block(block), None)
             .await
             .context("broadcasting new block")
         {

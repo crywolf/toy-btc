@@ -1,4 +1,3 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -23,10 +22,11 @@ pub struct Subscriber {
 pub struct Peers {
     listener_addr: String,
 
-    /// DashMap<node addr, grpc client>
+    /// DashMap<peer addr, grpc client>
     nodes: DashMap<String, NodeApiClient<Channel>>,
 
-    pub subscribers: DashMap<usize, Subscriber>,
+    /// DashMap<peer addr, Subscriber>
+    subscribers: DashMap<String, Subscriber>,
 }
 
 impl Peers {
@@ -42,11 +42,14 @@ impl Peers {
         &self.listener_addr
     }
 
-    pub fn add_subscriber(&self, sender: mpsc::Sender<SubscriptionItem>) -> usize {
-        static COUNTER: AtomicUsize = AtomicUsize::new(1);
-        let subscriber_id = COUNTER.fetch_add(1, Ordering::Relaxed);
+    pub fn add_subscriber(
+        &self,
+        peer_addr: &str,
+        sender: mpsc::Sender<SubscriptionItem>,
+    ) -> String {
+        let subscriber_id = peer_addr.to_string();
         self.subscribers.insert(
-            subscriber_id,
+            subscriber_id.clone(),
             Subscriber {
                 channel_sender: sender,
             },
@@ -54,14 +57,19 @@ impl Peers {
         subscriber_id
     }
 
-    pub fn remove_subscriber(&self, subscriber_id: usize) {
-        println!("removing failed subscriber id={}", subscriber_id);
-        self.subscribers.remove(&subscriber_id);
+    pub fn remove_subscriber(&self, peer_addr: &str) {
+        println!("removing failed subscriber {}", peer_addr);
+        self.subscribers.remove(peer_addr);
     }
 
     /// Returns number of connected nodes
     pub fn count(&self) -> usize {
         self.nodes.len()
+    }
+
+    /// Returns number of subscribers
+    pub fn subscriber_count(&self) -> usize {
+        self.subscribers.len()
     }
 
     /// Returns socket addresses of connected nodes
@@ -205,20 +213,29 @@ impl Peers {
         Ok(())
     }
 
-    pub async fn broadcast(&self, item: SubscriptionItem) -> Result<()> {
+    pub async fn broadcast(&self, item: SubscriptionItem, skip_addr: Option<&str>) -> Result<()> {
         println!(
             "broadcasting {item} to {} subscribers",
             self.subscribers.len()
         );
 
         for subscriber in self.subscribers.iter() {
-            let id = subscriber.key();
+            let peer_addr = subscriber.key();
+
+            // do not send the item back to its originator
+            if let Some(skip_addr) = skip_addr {
+                if peer_addr == skip_addr {
+                    continue;
+                }
+            }
 
             subscriber
                 .channel_sender
                 .send(item.clone())
                 .await
-                .with_context(|| format!("sending {item} to subscriber's channel (no: {})", id))?
+                .with_context(|| {
+                    format!("sending {item} to subscriber's channel ({})", peer_addr)
+                })?
         }
 
         Ok(())
@@ -230,27 +247,102 @@ pub async fn subscribe_to_nodes(
     tracker: TaskTracker,
     cancel: CancellationToken,
 ) -> Result<()> {
-    println!("subscribing to connected nodes...");
+    println!("subscribing to connected nodes ({})...", peers.count());
 
     for mut item in peers.nodes.iter_mut() {
-        let node = item.key().clone();
+        let peer_addr = item.key().clone();
         let client = item.value_mut();
 
-        let mut stream = client
-            .subscribe_for_new_items(Request::new(pb::Empty {}))
-            .await
-            .context("calling subscribe_for_new_items RPC")?
-            .into_inner();
+        create_subscription(
+            &peer_addr,
+            client,
+            Arc::clone(&peers),
+            tracker.clone(),
+            cancel.clone(),
+        )
+        .await?;
+    }
 
-        println!("subscription request for new items sent to {node}");
+    Ok(())
+}
 
-        let peers = Arc::clone(&peers);
-        let cancel_token = cancel.clone();
-        tracker.spawn(async move {
-            println!("subscribed to {node}");
+/// Subscribes to peers subscribed to us, and then periodically renews lost connections
+pub async fn subscribe_to_subscribers(
+    peers: Arc<Peers>,
+    tracker: TaskTracker,
+    cancel: CancellationToken,
+) -> Result<()> {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+
+    tokio::select! {
+        res = async {
+            loop {
+                interval.tick().await;
+                println!("renewing lost connections to subscribers, n_subscribers: {}...", peers.subscriber_count());
+                for item in peers.subscribers.iter() {
+                    let subscriber_addr = item.key().clone();
+
+                    if peers.nodes.contains_key(&subscriber_addr) {
+                        continue;
+                    }
+
+                    let addr = format!("http://{subscriber_addr}");
+                    let mut client = NodeApiClient::connect(addr.clone())
+                    .await
+                    .with_context(|| format!("connecting to {subscriber_addr}"))?;
+
+                    create_subscription(
+                        &subscriber_addr,
+                        &mut client,
+                        Arc::clone(&peers),
+                        tracker.clone(),
+                        cancel.clone(),
+                    )
+                    .await?;
+
+                    let before = peers.count();
+                    peers.nodes.insert(subscriber_addr.clone(), client);
+                    let after = peers.count();
+                    println!("created or renewed lost connections to subscribers ({})", after-before);
+                }
+            }
+        } => {
+            eprintln!("error in subscribe_to_subscribers task: {:?}", res);
+            res
+        }
+        _ = cancel.cancelled() => {
+            println!("'periodically subscribe to subscribers' task terminated");
+            Ok(())
+        }
+    }
+}
+
+pub async fn create_subscription(
+    peer_addr: &str,
+    client: &mut NodeApiClient<Channel>,
+    peers: Arc<Peers>,
+    tracker: TaskTracker,
+    cancel: CancellationToken,
+) -> Result<()> {
+    println!("calling subscribe_for_new_items RPC: {}", peer_addr);
+    let my_addr = peers.listener_addr().to_string();
+
+    let mut stream = client
+        .subscribe_for_new_items(Request::new(pb::SubscriptionRequest { addr: my_addr }))
+        .await
+        .context("calling subscribe_for_new_items RPC")?
+        .into_inner();
+
+    let peer_addr = peer_addr.to_owned();
+    println!("subscription request for new items sent to {peer_addr}");
+
+    let peers = Arc::clone(&peers);
+    let cancel_token = cancel.clone();
+    tracker.spawn(async move {
+            println!("subscribed to {peer_addr}, message listener started, n_peers: {}", peers.count());
             tokio::select! {
                 _ = cancel_token.cancelled() => {
-                    println!("'subscribe_to_nodes for new items' task terminated");
+                    println!("'subscription for new items' task terminated, {peer_addr}");
                 }
                 res = async {
                     while let Some(item_response) = stream.message().await? {
@@ -262,7 +354,7 @@ pub async fn subscribe_to_nodes(
                         let item = match item_type {
                             pb::ItemType::Block => {
                                 let block = Block::deserialize(&bytes[..]).context("deserialize block")?;
-                                println!("> received new block from peer {:?}", block.header.hash());
+                                println!("> received new block from peer {peer_addr} ({})", block.header.hash());
 
                                 let mut blockchain = crate::BLOCKCHAIN.write().await;
                                 if let Err(e) = blockchain.add_block(block.clone()) {
@@ -273,8 +365,11 @@ pub async fn subscribe_to_nodes(
                                 SubscriptionItem::Block(block)
                             },
                             pb::ItemType::Transaction => {
-                                println!("> new transaction from peer, adding to mempool");
                                 let transaction = Tx::deserialize(&bytes[..]).context("deserialize transaction")?;
+                                println!(
+                                    "> received new transaction from peer {peer_addr}, adding to mempool ({})",
+                                    transaction.hash()
+                                );
                                 let mut blockchain = crate::BLOCKCHAIN.write().await;
                                 if let Err(e) = blockchain.add_to_mempool(transaction.clone()) {
                                     match e {
@@ -295,18 +390,17 @@ pub async fn subscribe_to_nodes(
                         let msg = format!("broadcasting received {item} to all subscribers");
                         println!("{msg}");
 
-                        peers.broadcast(item)
+                        peers.broadcast(item, Some(&peer_addr))
                             .await
                             .context(msg)?;
                     }
                     Ok::<_, anyhow::Error>(())
                 } => {
-                    res.inspect_err(|e| eprintln!("subscription connection to {node} failed: {}", e.root_cause()))?;
+                    res.inspect_err(|e| eprintln!("subscription connection to {peer_addr} failed: {}", e.root_cause()))?;
                 }
             }
             Ok::<_, anyhow::Error>(())
         });
-    }
 
     Ok(())
 }

@@ -7,12 +7,12 @@ use btclib::Serializable;
 
 use tonic::{Request, Response, Status};
 
+use super::log_error;
+use super::node_api::SubscriptionItem;
 use super::peers::Peers;
 use super::wallet::pb;
 use super::wallet::pb::wallet_api_server::{WalletApi, WalletApiServer};
 use crate::blockchain::BLOCKCHAIN;
-use crate::grpc::log_error;
-use crate::grpc::node_api::SubscriptionItem;
 
 pub struct WalletSvc {
     peers: Arc<Peers>,
@@ -67,7 +67,7 @@ impl WalletApi for WalletSvc {
         let transaction = Tx::deserialize(&bytes[..])?;
 
         println!(
-            "gRPC: new transaction was submitted, {:?}",
+            "gRPC: new transaction was submitted, {}",
             transaction.hash()
         );
 
@@ -83,7 +83,7 @@ impl WalletApi for WalletSvc {
         println!("broadcasting new transaction to all subscribers");
         if let Err(e) = self
             .peers
-            .broadcast(SubscriptionItem::Transaction(transaction))
+            .broadcast(SubscriptionItem::Transaction(transaction), None)
             .await
             .context("broadcasting new block")
         {

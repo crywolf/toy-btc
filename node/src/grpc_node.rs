@@ -131,19 +131,29 @@ async fn main() -> Result<()> {
 
     let peers = Arc::new(peers);
 
-    peers::subscribe_to_nodes(Arc::clone(&peers), tracker.clone(), cancel_token.clone()).await?;
+    tracker.spawn(peers::subscribe_to_nodes(
+        Arc::clone(&peers),
+        tracker.clone(),
+        cancel_token.clone(),
+    ));
+
+    tracker.spawn(peers::subscribe_to_subscribers(
+        Arc::clone(&peers),
+        tracker.clone(),
+        cancel_token.clone(),
+    ));
 
     tokio::select! {
         // Build and start gRPC server
         res = Server::builder()
-        .add_service(reflection)
-        .add_service(grpc::node_api::create_server(Arc::clone(&peers)))
-        .add_service(grpc::miner_api::create_server(Arc::clone(&peers)))
-        .add_service(grpc::wallet_api::create_server(Arc::clone(&peers)))
-        .serve(addr)
-         => {
-            res?;
-        }
+            //.layer(remote_addr_extension)
+            .add_service(reflection)
+            .add_service(grpc::node_api::create_server(Arc::clone(&peers)))
+            .add_service(grpc::miner_api::create_server(Arc::clone(&peers)))
+            .add_service(grpc::wallet_api::create_server(Arc::clone(&peers)))
+            .serve(addr) => {
+                res?;
+            }
         _ = cancel_token.cancelled() => {
             println!("terminating server");
         }

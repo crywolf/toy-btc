@@ -16,7 +16,7 @@ anyhow = { version = "1.0.95" }
 flume = "0.11.1"
 tokio-util = { version ="0.7.13" }
 prost = "0.13.5"
-tonic = "0.12.3"
+tonic = "0.13.0"
 
 [build-dependencies]
-tonic-build = "0.12.3"
+tonic-build = "0.13.0"
