@@ -358,7 +358,7 @@ pub async fn create_subscription(
 
                                 let mut blockchain = crate::BLOCKCHAIN.write().await;
                                 if let Err(e) = blockchain.add_block(block.clone()) {
-                                    eprintln!("adding new block: {}", e);
+                                    eprintln!("adding new block: {e} ({})", block.header.hash());
                                     continue;
                                 }
                                 blockchain.rebuild_utxo_set();
@@ -374,7 +374,7 @@ pub async fn create_subscription(
                                 if let Err(e) = blockchain.add_to_mempool(transaction.clone()) {
                                     match e {
                                         btclib::error::BtcError::TxAlreadyInMempool(_) => {
-                                            eprintln!("transaction rejected: {e}");
+                                            eprintln!("transaction rejected: {e} ({})", transaction.hash());
                                             continue;
                                         }
                                         _ => {

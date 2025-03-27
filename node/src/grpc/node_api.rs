@@ -57,7 +57,7 @@ impl NodeApi for NodeSvc {
         let start = request.start as usize;
         let n_blocks = request.n_blocks as usize;
 
-        let (tx, rx) = mpsc::channel(4);
+        let (tx, rx) = mpsc::channel(10);
 
         tokio::spawn(async move {
             let blockchain = BLOCKCHAIN.read().await;

@@ -1,3 +1,4 @@
+use std::net::ToSocketAddrs;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -22,6 +23,13 @@ async fn main() -> Result<()> {
     let node_addrs = args.nodes;
 
     let peers = grpc::peers::Peers::new(&args.host, args.port);
+
+    let listener_addr = peers.listener_addr();
+    let socket_addr = listener_addr
+        .to_socket_addrs()
+        .with_context(|| format!("converting {listener_addr} to socket address"))?
+        .next()
+        .expect("is a valid socket address");
 
     println!("-");
     peers
@@ -74,21 +82,6 @@ async fn main() -> Result<()> {
     } else if !Path::new(&blockchain_file).exists() {
         println!("no initial nodes provided, starting as a seed node");
     }
-
-    // Start gRPC server
-    let listener_addr = peers.listener_addr();
-    let addr = listener_addr
-        .parse()
-        .with_context(|| format!("parsing address {listener_addr}"))?;
-
-    // gRPC Reflection Service
-    let reflection = tonic_reflection::server::Builder::configure()
-        .register_encoded_file_descriptor_set(grpc::FILE_DESCRIPTOR_SET)
-        .build_v1()
-        .unwrap();
-
-    println!("---");
-    println!("Listening on {} (gRPC)", addr);
 
     // Graceful shutdown
     let token = CancellationToken::new();
@@ -143,15 +136,24 @@ async fn main() -> Result<()> {
         cancel_token.clone(),
     ));
 
+    // gRPC Reflection Service
+    let reflection = tonic_reflection::server::Builder::configure()
+        .register_encoded_file_descriptor_set(grpc::FILE_DESCRIPTOR_SET)
+        .build_v1()
+        .unwrap();
+
+    // Start gRPC server
+    println!("---");
+    println!("Listening on {} (gRPC)", socket_addr);
+
     tokio::select! {
         // Build and start gRPC server
         res = Server::builder()
-            //.layer(remote_addr_extension)
             .add_service(reflection)
             .add_service(grpc::node_api::create_server(Arc::clone(&peers)))
             .add_service(grpc::miner_api::create_server(Arc::clone(&peers)))
             .add_service(grpc::wallet_api::create_server(Arc::clone(&peers)))
-            .serve(addr) => {
+            .serve(socket_addr) => {
                 res?;
             }
         _ = cancel_token.cancelled() => {
