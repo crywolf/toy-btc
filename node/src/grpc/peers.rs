@@ -111,9 +111,16 @@ impl Peers {
                     // do not connect to already connected node
                     if !self.nodes.contains_key(&child_node) {
                         let addr = format!("http://{child_node}");
-                        let client = NodeApiClient::connect(addr)
+                        let client = match NodeApiClient::connect(addr)
                             .await
-                            .with_context(|| format!("connecting to {child_node}"))?;
+                            .with_context(|| format!("connecting to {child_node}"))
+                        {
+                            Ok(client) => client,
+                            Err(e) => {
+                                eprintln!("error: {e:?}\n  -> skipping {child_node}");
+                                continue;
+                            }
+                        };
 
                         println!("adding '{}' to the list of connected nodes", child_node);
                         self.nodes.insert(child_node, client);
@@ -155,12 +162,20 @@ impl Peers {
             let height = blockchain.block_height();
             drop(blockchain);
 
-            let response = client
+            let count = match client
                 .ask_difference(Request::new(pb::DifferenceRequest { height }))
                 .await
-                .context("calling ask_difference RPC")?;
-
-            let count = response.into_inner().n_blocks;
+                .context("calling ask_difference RPC")
+            {
+                Ok(response) => response.into_inner().n_blocks,
+                Err(e) => {
+                    eprintln!(
+                        "error synchronizing blockchain (ask_difference): {}",
+                        e.root_cause()
+                    );
+                    continue;
+                }
+            };
 
             println!("received Difference {count} from {node}");
             if count > longest_count {
@@ -178,7 +193,7 @@ impl Peers {
     }
 
     /// Request `need` missing blocks from the specified `node`
-    pub async fn synchronize_blockchain(&self, node: &str, need: u64) -> Result<()> {
+    pub async fn fetch_missing_blocks(&self, node: &str, need: u64) -> Result<()> {
         let mut entry = self.nodes.get_mut(node).expect("node name exists");
         let client = entry.value_mut();
 
@@ -213,6 +228,8 @@ impl Peers {
         Ok(())
     }
 
+    /// Sends `item` to subscribed peers.
+    /// Does not sent to the `skip_addr` (address of the peer that sent this item to us)
     pub async fn broadcast(&self, item: SubscriptionItem, skip_addr: Option<&str>) -> Result<()> {
         println!(
             "broadcasting {item} to {} subscribers",
@@ -238,6 +255,65 @@ impl Peers {
                 })?
         }
 
+        Ok(())
+    }
+}
+
+pub async fn periodically_synchronize_blockchain(
+    peers: Arc<Peers>,
+    cancel: CancellationToken,
+) -> Result<()> {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(15));
+
+    tokio::select! {
+        res = async {
+            loop {
+                interval.tick().await;
+                println!("* synchronizing blockchain, n_peers: {}", peers.count());
+                if let Err(e) = synchronize_blockchain(Arc::clone(&peers)).await.context("periodically_synchronize_blockchain") {
+                    eprintln!("error synchronizing blockchain: {:?}", e);
+                }
+            }
+        } => {
+            res
+        }
+        _ = cancel.cancelled() => {
+            println!("'periodically_synchronize_blockchain' task terminated");
+            Ok(())
+        }
+    }
+}
+
+pub async fn synchronize_blockchain(peers: Arc<Peers>) -> Result<()> {
+    if let Some((longest_name, longest_count)) = peers
+        .find_longest_chain_node()
+        .await
+        .context("find node with longest chain")?
+    {
+        println!(
+            "found node with longest chain: {}, {}",
+            longest_name, longest_count
+        );
+        // request missing blocks from the node with the longest blockchain
+        peers
+            .fetch_missing_blocks(&longest_name, longest_count)
+            .await
+            .with_context(|| format!("fetch missing blocks from {longest_name}"))?;
+        println!("blockchain updated from {}", longest_name);
+
+        // recalculate utxos
+        {
+            let mut blockchain = crate::BLOCKCHAIN.write().await;
+            blockchain.rebuild_utxo_set();
+        }
+        // try to adjust difficulty
+        {
+            let mut blockchain = crate::BLOCKCHAIN.write().await;
+            blockchain.try_adjust_target();
+            Ok(())
+        }
+    } else {
+        println!("no longer blockchain found, we are up to date");
         Ok(())
     }
 }

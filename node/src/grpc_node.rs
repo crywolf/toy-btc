@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use grpc::peers;
+use grpc::peers::{self, synchronize_blockchain};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -49,36 +49,12 @@ async fn main() -> Result<()> {
         println!("blockchain file does not exist!");
     }
 
-    if !node_addrs.is_empty() {
-        if let Some((longest_name, longest_count)) = peers
-            .find_longest_chain_node()
-            .await
-            .context("find node with longest chain")?
-        {
-            println!(
-                "found node with longest chain: {}, {}",
-                longest_name, longest_count
-            );
-            // request missing blocks from the node with the longest blockchain
-            peers
-                .synchronize_blockchain(&longest_name, longest_count)
-                .await
-                .with_context(|| format!("download blockchain from {longest_name}"))?;
-            println!("blockchain downloaded from {}", longest_name);
+    let peers = Arc::new(peers);
 
-            // recalculate utxos
-            {
-                let mut blockchain = BLOCKCHAIN.write().await;
-                blockchain.rebuild_utxo_set();
-            }
-            // try to adjust difficulty
-            {
-                let mut blockchain = BLOCKCHAIN.write().await;
-                blockchain.try_adjust_target();
-            }
-        } else {
-            println!("no longer blockchain found, we are up to date");
-        }
+    if !node_addrs.is_empty() {
+        synchronize_blockchain(Arc::clone(&peers))
+            .await
+            .context("initial blockchain synchronization")?
     } else if !Path::new(&blockchain_file).exists() {
         println!("no initial nodes provided, starting as a seed node");
     }
@@ -122,8 +98,6 @@ async fn main() -> Result<()> {
         }
     });
 
-    let peers = Arc::new(peers);
-
     tracker.spawn(peers::subscribe_to_nodes(
         Arc::clone(&peers),
         tracker.clone(),
@@ -133,6 +107,11 @@ async fn main() -> Result<()> {
     tracker.spawn(peers::subscribe_to_subscribers(
         Arc::clone(&peers),
         tracker.clone(),
+        cancel_token.clone(),
+    ));
+
+    tracker.spawn(peers::periodically_synchronize_blockchain(
+        Arc::clone(&peers),
         cancel_token.clone(),
     ));
 
