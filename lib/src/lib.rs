@@ -46,21 +46,28 @@ pub fn sats_to_btc(sats: u64) -> f64 {
     (sats / sats_per_btc).to_f64().unwrap()
 }
 
-/// Saveable trait - save and load from file
-pub trait Saveable
+/// Serializable trait
+pub trait Serializable
 where
     Self: Sized,
 {
-    fn load<R: std::io::Read>(reader: R) -> std::io::Result<Self>;
-    fn save<W: std::io::Write>(&self, writer: W) -> std::io::Result<()>;
+    /// Deserialize from reader
+    fn deserialize<R: std::io::Read>(reader: R) -> std::io::Result<Self>;
+
+    /// Serialize into writer
+    fn serialize<W: std::io::Write>(&self, writer: W) -> std::io::Result<()>;
+}
+
+/// Saveable trait - save and load from file
+pub trait Saveable: Serializable {
     // Default implementations:
     fn load_from_file<P: AsRef<std::path::Path>>(path: P) -> std::io::Result<Self> {
         let file = std::fs::File::open(&path)?;
-        Self::load(file)
+        Self::deserialize(file)
     }
     fn save_to_file<P: AsRef<std::path::Path>>(&self, path: P) -> std::io::Result<()> {
         let file = std::fs::File::create(&path)?;
-        self.save(file)
+        self.serialize(file)
     }
 }
 

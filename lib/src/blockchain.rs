@@ -15,8 +15,8 @@ use crate::{
     error::{BtcError, Result},
     merkle_root::MerkleRoot,
     sha256::Hash,
-    Saveable, DIFFICULTY_UPDATE_INTERVAL, HALVING_INTERVAL, IDEAL_BLOCK_TIME, INITIAL_REWARD,
-    MAX_MEMPOOL_TRANSACTION_AGE, MIN_TARGET, U256,
+    Saveable, Serializable, DIFFICULTY_UPDATE_INTERVAL, HALVING_INTERVAL, IDEAL_BLOCK_TIME,
+    INITIAL_REWARD, MAX_MEMPOOL_TRANSACTION_AGE, MIN_TARGET, U256,
 };
 
 /// UTXO set represented as HashMap where
@@ -348,8 +348,8 @@ impl Blockchain {
 }
 
 /// Save and load expecting CBOR from ciborium as format
-impl Saveable for Blockchain {
-    fn load<R: std::io::Read>(reader: R) -> std::io::Result<Self> {
+impl Serializable for Blockchain {
+    fn deserialize<R: std::io::Read>(reader: R) -> std::io::Result<Self> {
         ciborium::de::from_reader(reader).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -358,7 +358,7 @@ impl Saveable for Blockchain {
         })
     }
 
-    fn save<W: std::io::Write>(&self, writer: W) -> std::io::Result<()> {
+    fn serialize<W: std::io::Write>(&self, writer: W) -> std::io::Result<()> {
         ciborium::ser::into_writer(self, writer).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -367,3 +367,5 @@ impl Saveable for Blockchain {
         })
     }
 }
+
+impl Saveable for Blockchain {}

@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package wallet;
+
+service WalletApi {
+    // Fetch all UTXOs belonging to a public key
+    rpc FetchUtxos (FetchUtxosRequest) returns (FetchUtxosResponse);
+
+    // Send a transaction to the network
+    rpc SubmitTransaction(Transaction) returns (Empty) ;
+}
+
+message Empty {}
+
+message FetchUtxosRequest {
+    // Public key for the conbaise transaction
+    bytes pubkey = 1;
+}
+
+message UTXO {
+    bytes tx_output = 1;
+    bool in_mempool = 2;
+}
+
+message FetchUtxosResponse {
+    repeated UTXO utxos = 1;
+}
+
+message Transaction {
+    bytes cbor = 1;
+}

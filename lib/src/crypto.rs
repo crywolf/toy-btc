@@ -7,7 +7,7 @@ use k256::Secp256k1;
 use serde::{Deserialize, Serialize};
 use spki::EncodePublicKey;
 
-use crate::{sha256::Hash, Saveable};
+use crate::{sha256::Hash, Saveable, Serializable};
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Signature(ECDSASignature<Secp256k1>);
@@ -30,8 +30,8 @@ impl Signature {
 pub struct PublicKey(VerifyingKey<Secp256k1>);
 
 // save and load as PEM
-impl Saveable for PublicKey {
-    fn load<R: std::io::Read>(mut reader: R) -> std::io::Result<Self> {
+impl Serializable for PublicKey {
+    fn deserialize<R: std::io::Read>(mut reader: R) -> std::io::Result<Self> {
         // read PEM-encoded public key into string
         let mut buf = String::new();
         reader.read_to_string(&mut buf)?;
@@ -44,7 +44,7 @@ impl Saveable for PublicKey {
         Ok(PublicKey(public_key))
     }
 
-    fn save<W: std::io::Write>(&self, mut writer: W) -> std::io::Result<()> {
+    fn serialize<W: std::io::Write>(&self, mut writer: W) -> std::io::Result<()> {
         let s = self.0.to_public_key_pem(Default::default()).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -55,6 +55,8 @@ impl Saveable for PublicKey {
         Ok(())
     }
 }
+
+impl Saveable for PublicKey {}
 
 impl std::fmt::Debug for PublicKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -80,8 +82,8 @@ impl PrivateKey {
 }
 
 /// Save and load expecting CBOR from ciborium as format
-impl Saveable for PrivateKey {
-    fn load<R: std::io::Read>(reader: R) -> std::io::Result<Self> {
+impl Serializable for PrivateKey {
+    fn deserialize<R: std::io::Read>(reader: R) -> std::io::Result<Self> {
         ciborium::de::from_reader(reader).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -90,7 +92,7 @@ impl Saveable for PrivateKey {
         })
     }
 
-    fn save<W: std::io::Write>(&self, writer: W) -> std::io::Result<()> {
+    fn serialize<W: std::io::Write>(&self, writer: W) -> std::io::Result<()> {
         ciborium::ser::into_writer(self, writer).map_err(|_| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -99,6 +101,8 @@ impl Saveable for PrivateKey {
         })
     }
 }
+
+impl Saveable for PrivateKey {}
 
 mod signkey_serde {
     use super::{Secp256k1, SigningKey};

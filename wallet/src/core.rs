@@ -1,15 +1,21 @@
 pub mod config;
+mod grpc;
 mod utxo;
 
 use anyhow::{Context, Result};
 use btclib::blockchain::{Tx, TxInput, TxOutput};
 use btclib::crypto::{PrivateKey, PublicKey, Signature};
 use btclib::network::Message;
-use btclib::Saveable;
+use btclib::{Saveable, Serializable};
 use config::{Config, FeeType};
+use grpc::pb;
+use grpc::pb::wallet_api_client::WalletApiClient;
 use kanal::Sender;
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;
+use tokio::sync::Mutex;
+use tonic::transport::Channel;
+use tonic::Request;
 use tracing::{debug, error, info};
 use utxo::UtxoStore;
 
@@ -59,25 +65,42 @@ impl Recipient {
     }
 }
 
+enum Connection {
+    TcpStream(Mutex<TcpStream>),
+    GrpcClient(Mutex<WalletApiClient<Channel>>),
+}
+
 /// Core functionality of the wallet
 pub struct Core {
     pub config: Config,
     utxos: UtxoStore,
-    node_conn: tokio::sync::Mutex<TcpStream>,
+    node_conn: Connection,
     pub tx_sender: Sender<Tx>,
 }
 
 impl Core {
     /// Create a new `Core` instance
-    async fn new(config: Config, utxos: UtxoStore) -> Result<Self> {
+    async fn new(config: Config, utxos: UtxoStore, grpc: bool) -> Result<Self> {
         let (tx_sender, _) = kanal::bounded(10);
 
-        let stream = TcpStream::connect(&config.default_node)
-            .await
-            .with_context(|| format!("connect to node {}", config.default_node))?;
+        let connection = if grpc {
+            println!("Using gRPC connection");
+            let addr = format!("http://{}", config.default_node);
+            let client = WalletApiClient::connect(addr)
+                .await
+                .with_context(|| format!("connecting to {}", config.default_node))?;
+
+            Connection::GrpcClient(Mutex::new(client))
+        } else {
+            let stream = TcpStream::connect(&config.default_node)
+                .await
+                .with_context(|| format!("connect to node {}", config.default_node))?;
+
+            Connection::TcpStream(Mutex::new(stream))
+        };
 
         Ok(Self {
-            node_conn: tokio::sync::Mutex::new(stream),
+            node_conn: connection,
             config,
             utxos,
             tx_sender: tx_sender.clone(),
@@ -85,7 +108,7 @@ impl Core {
     }
 
     /// Loads config file and configures `Core` accordingly
-    pub async fn load(config_path: PathBuf, node: Option<String>) -> Result<Self> {
+    pub async fn load(config_path: PathBuf, node: Option<String>, grpc: bool) -> Result<Self> {
         info!("Loading core from config: {}", config_path.display());
         let mut config = Config::load_from_file(config_path).context("load config from file")?;
 
@@ -109,7 +132,7 @@ impl Core {
             utxos.add_key(LoadedKey { public, private });
         }
 
-        Core::new(config, utxos).await
+        Core::new(config, utxos, grpc).await
     }
 
     /// Returns sender's private key for specified public key
@@ -129,29 +152,64 @@ impl Core {
     pub async fn fetch_utxos(&self) -> Result<()> {
         debug!("Fetching UTXOs from node: {}", self.config.default_node);
         for key in &self.utxos.my_keys {
-            let mut stream_lock = self.node_conn.lock().await;
+            match &self.node_conn {
+                // TCP
+                Connection::TcpStream(stream) => {
+                    let mut stream_lock = stream.lock().await;
 
-            Message::FetchUTXOs(key.public.clone())
-                .send_async(&mut *stream_lock)
-                .await
-                .context("send FetchUTXOs message")?;
+                    Message::FetchUTXOs(key.public.clone())
+                        .send_async(&mut *stream_lock)
+                        .await
+                        .context("send FetchUTXOs message")?;
 
-            if let Message::UTXOs(utxos) = Message::receive_async(&mut *stream_lock)
-                .await
-                .context("receive message")?
-            {
-                debug!("Received {} UTXOs for key: {:?}", utxos.len(), key.public);
-                // Replace the entire UTXO set for this key
-                self.utxos.utxos.insert(
-                    key.public.clone(),
-                    utxos
+                    if let Message::UTXOs(utxos) = Message::receive_async(&mut *stream_lock)
+                        .await
+                        .context("receive message")?
+                    {
+                        debug!("Received {} UTXOs for key: {:?}", utxos.len(), key.public);
+                        // Replace the entire UTXO set for this key
+                        self.utxos.utxos.insert(
+                            key.public.clone(),
+                            utxos
+                                .into_iter()
+                                .map(|(output, marked)| (marked, output))
+                                .collect(),
+                        );
+                    } else {
+                        error!("Unexpected response from node");
+                        anyhow::bail!("Unexpected response from node");
+                    }
+                }
+                // GRPC
+                Connection::GrpcClient(client) => {
+                    let mut pubkey_bytes = Vec::new();
+                    Serializable::serialize(&key.public, &mut pubkey_bytes)?;
+
+                    let response = client
+                        .lock()
+                        .await
+                        .fetch_utxos(Request::new(pb::FetchUtxosRequest {
+                            pubkey: pubkey_bytes,
+                        }))
+                        .await
+                        .context("calling fetch_utxos RPC")?;
+
+                    let utxos = response.into_inner().utxos;
+                    debug!("Received {} UTXOs for key: {:?}", utxos.len(), key.public);
+                    let utxos = utxos
                         .into_iter()
-                        .map(|(output, marked)| (marked, output))
-                        .collect(),
-                );
-            } else {
-                error!("Unexpected response from node");
-                anyhow::bail!("Unexpected response from node");
+                        .map(|utxo| {
+                            let tx_output: TxOutput =
+                                Serializable::deserialize(&utxo.tx_output[..])
+                                    .context("deserialize transaction output")?;
+                            let in_mempool = utxo.in_mempool;
+                            Ok::<(bool, TxOutput), anyhow::Error>((in_mempool, tx_output))
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+
+                    // Replace the entire UTXO set for this key
+                    self.utxos.utxos.insert(key.public.clone(), utxos);
+                }
             }
         }
         info!("UTXOs fetched successfully");
@@ -161,11 +219,28 @@ impl Core {
     /// Sends a transaction to the node
     pub async fn send_transaction(&self, transaction: Tx) -> Result<()> {
         debug!("Sending transaction to node: {}", self.config.default_node);
-        let mut stream_lock = self.node_conn.lock().await;
-        Message::SubmitTransaction(transaction)
-            .send_async(&mut *stream_lock)
-            .await
-            .context("send SubmitTransaction message")?;
+
+        match &self.node_conn {
+            // TCP
+            Connection::TcpStream(stream) => {
+                let mut stream_lock = stream.lock().await;
+                Message::SubmitTransaction(transaction)
+                    .send_async(&mut *stream_lock)
+                    .await
+                    .context("send SubmitTransaction message")?;
+            }
+            // GRPC
+            Connection::GrpcClient(client) => {
+                let mut bytes = Vec::new();
+                Serializable::serialize(&transaction, &mut bytes)?;
+                client
+                    .lock()
+                    .await
+                    .submit_transaction(pb::Transaction { cbor: bytes })
+                    .await
+                    .context("calling submit_transaction RPC")?;
+            }
+        }
 
         info!("Transaction sent successfully");
         Ok(())

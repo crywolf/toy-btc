@@ -1,7 +1,7 @@
 use std::io::Error;
 
 use btclib::blockchain::Tx;
-use btclib::Saveable;
+use btclib::Serializable;
 
 fn main() -> Result<(), Error> {
     let path = if let Some(arg) = std::env::args().nth(1) {
@@ -12,7 +12,7 @@ fn main() -> Result<(), Error> {
     };
 
     let file = std::fs::File::open(path)?;
-    let tx = Tx::load(file)?;
+    let tx = Tx::deserialize(file)?;
     println!("{:#?}", tx);
 
     Ok(())

@@ -1,4 +1,5 @@
-use std::path::PathBuf;
+mod cli;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -8,22 +9,10 @@ use btclib::blockchain::Block;
 use btclib::crypto::PublicKey;
 use btclib::network::Message;
 use btclib::Saveable;
-use clap::Parser;
 use tokio::net::TcpStream;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::time::{interval, Duration};
 use tokio_util::sync::CancellationToken;
-
-#[derive(Parser)]
-#[command(author, version, about, long_about = None)]
-struct Cli {
-    #[arg(short, long)]
-    /// Node socket address to connect to
-    address: String,
-    #[arg(short, long)]
-    /// Pay the mining reward to this public key
-    public_key_file: PathBuf,
-}
 
 struct Miner {
     public_key: PublicKey,
@@ -199,7 +188,7 @@ impl Miner {
 
 #[tokio::main]
 pub async fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let cli = cli::parse();
 
     let public_key = PublicKey::load_from_file(&cli.public_key_file)
         .map_err(|e| anyhow!("Error reading public key: {}", e))?;

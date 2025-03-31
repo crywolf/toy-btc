@@ -1,7 +1,7 @@
 use std::io::Error;
 
 use btclib::blockchain::Block;
-use btclib::Saveable;
+use btclib::Serializable;
 
 fn main() -> Result<(), Error> {
     let path = if let Some(arg) = std::env::args().nth(1) {
@@ -12,7 +12,7 @@ fn main() -> Result<(), Error> {
     };
 
     let file = std::fs::File::open(path)?;
-    let block = Block::load(file)?;
+    let block = Block::deserialize(file)?;
     println!("{:#?}", block);
 
     Ok(())

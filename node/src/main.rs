@@ -1,3 +1,4 @@
+mod args;
 mod blockchain;
 mod handler;
 mod peers;
@@ -5,34 +6,16 @@ mod peers;
 use std::{path::Path, sync::Arc};
 
 use anyhow::{Context, Result};
-use argh::FromArgs;
 use blockchain::BLOCKCHAIN;
 use tokio::net::TcpListener;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
-#[derive(FromArgs)]
-/// A toy bitcoin node
-struct Args {
-    #[argh(option, default = "String::from(\"localhost\")")]
-    /// host address (default: localhost)
-    host: String,
-    #[argh(option)]
-    /// port number
-    port: u16,
-    #[argh(option, default = "String::from(\"./blockchain.cbor\")")]
-    /// blockchain file location (default: ./blockchain.cbor)
-    blockchain_file: String,
-    #[argh(positional)]
-    /// addresses of initial nodes
-    nodes: Vec<String>,
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     // Parse command line arguments
-    let args: Args = argh::from_env();
+    let args = args::args();
 
     let blockchain_file = args.blockchain_file;
     let node_addrs = args.nodes;

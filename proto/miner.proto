@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package miner;
+
+service MinerApi {
+    // Ask the node to prepare the optimal block template with the coinbase transaction paying the specified public key
+    rpc FetchTemplate (FetchTemplateRequest) returns (Template);
+
+    // Ask the node to validate a block template.
+    //
+    // This is to prevent the node from mining an invalid block (e.g. if one has been found in the meantime,
+    // or if transactions have been removed from the mempool)
+    rpc ValidateTemplate (Template) returns (ValidateTemplateResponse);
+
+    // Submit a mined block to a node
+    rpc SubmitTemplate (Template) returns (Empty);
+}
+
+message Empty {}
+
+message FetchTemplateRequest {
+    // Public key for the conbaise transaction
+    bytes pubkey = 1;
+}
+
+message ValidateTemplateResponse {
+    bool is_valid = 1;
+}
+
+message Template {
+    bytes cbor = 1;
+}

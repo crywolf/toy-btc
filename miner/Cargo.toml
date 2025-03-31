@@ -2,6 +2,11 @@
 name = "miner"
 version = "0.1.0"
 edition = "2021"
+build = "../build.rs"
+
+[[bin]]
+name = "miner-grpc"
+path = "src/grpc_miner.rs"
 
 [dependencies]
 btclib = { path = "../lib" }
@@ -10,3 +15,8 @@ clap = { version = "4.5.27", features = ["derive"] }
 anyhow = { version = "1.0.95" }
 flume = "0.11.1"
 tokio-util = { version ="0.7.13" }
+prost = "0.13.5"
+tonic = "0.13.0"
+
+[build-dependencies]
+tonic-build = "0.13.0"

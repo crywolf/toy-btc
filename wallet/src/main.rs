@@ -25,6 +25,9 @@ struct Cli {
     /// Path to config file
     #[arg(short, long, value_name = "FILE", default_value = "wallet_config.toml")]
     config: PathBuf,
+    /// Use gRPC connection
+    #[arg(long)]
+    grpc: bool,
     /// Node socket address
     #[arg(short, long, value_name = "ADDRESS")]
     node: Option<String>,
@@ -60,7 +63,7 @@ async fn main() -> Result<()> {
 
     info!("Loading config from: {:?}", config_path);
 
-    let mut core = Core::load(config_path.clone(), cli.node)
+    let mut core = Core::load(config_path.clone(), cli.node, cli.grpc)
         .await
         .context("load Core object")?;
 
