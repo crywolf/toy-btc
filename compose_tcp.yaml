@@ -1,12 +1,12 @@
 x-node-common-config: &node-common
-  image: btc_node_grpc
+  image: btc_node
   build:
     context: .
-    dockerfile: node_grpc.Dockerfile
+    dockerfile: node.Dockerfile
   volumes:
     - btc:/data
   networks:
-    - btc_grpc
+    - btc
   restart: on-failure
 ###############################################################
 
@@ -17,24 +17,24 @@ services:
 
   node_1:
     <<: *node-common
-    command: --host node_1 --port 50000
+    command: --host node_1 --port 9000
     ports:
-      - 50001:50000
+      - 9000:9000
 
   node_2:
     <<: *node-common
-    command: --host node_2 --port 50000 node_1:50000
+    command: --host node_2 --port 9000 node_1:9000
     ports:
-      - 50002:50000
+      - 9001:9000
     depends_on:
       node_1:
         condition: service_started
 
   node_3:
     <<: *node-common
-    command: --host node_3 --port 50000 node_2:50000
+    command: --host node_3 --port 9000 node_2:9000
     ports:
-      - 50003:50000
+      - 9002:9000
     depends_on:
       node_2:
         condition: service_started
@@ -42,18 +42,18 @@ services:
 
   node_4:
     <<: *node-common
-    command: --host node_4 --port 50000 node_2:50000
+    command: --host node_4 --port 9000 node_2:9000
     ports:
-      - 50004:50000
+      - 9003:9000
     depends_on:
       node_3:
         condition: service_started
 
   node_5:
     <<: *node-common
-    command: --host node_5 --port 50000 node_4:50000 node_2:50000
+    command: --host node_5 --port 9000 node_3:9000 node_4:9000 node_2:9000
     ports:
-      - 50005:50000
+      - 9004:9000
     depends_on:
       node_4:
         condition: service_started
@@ -62,15 +62,15 @@ services:
 # MINER
 
   miner:
-    image: btc_miner_grpc
-    command: -a node_3:50000 -p /data/alice.pub.pem
+    image: btc_miner
+    command: -a node_3:9000 -p /data/alice.pub.pem
     volumes:
       - .:/data:ro
     build:
       context: .
-      dockerfile: miner_grpc.Dockerfile
+      dockerfile: miner.Dockerfile
     networks:
-      - btc_grpc
+      - btc
     restart: on-failure
     depends_on:
       node_5:
@@ -82,6 +82,6 @@ volumes:
   btc:
 
 networks:
-  btc_grpc:
+  btc:
 
 ###############################################################

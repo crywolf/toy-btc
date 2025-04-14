@@ -34,7 +34,7 @@ will create Bob's public key `bob.pub.pem` and private key `bob.priv.cbor`
 #### using Docker compose
 
 ```shell
-docker compose -f compose_grpc.yaml up --build
+docker compose up --build
 ```
 After the first run, the containers are built and you can omit the `--build` flag
 
@@ -100,7 +100,7 @@ Use `cargo run --bin good-wallet -- --help` for more usage info.
 #### using Docker compose
 
 ```shell
-docker compose up --build
+docker compose -f compose_tcp.yaml up --build
 ```
 
 #### mannually
