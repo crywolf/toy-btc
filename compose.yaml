@@ -1,75 +1,59 @@
+x-node-common-config: &node-common
+  image: btc_node
+  build:
+    context: .
+    dockerfile: node.Dockerfile
+  volumes:
+    - btc:/data
+  networks:
+    - btc
+  restart: on-failure
+###############################################################
+
 services:
 
 ###############################################################
 # NODES
 
   node_1:
-    image: btc_node
+    <<: *node-common
     command: --host node_1 --port 9000
     ports:
       - 9000:9000
-    build:
-      context: .
-      dockerfile: node.Dockerfile
-    volumes:
-      - btc:/data
-    networks:
-      - btc
-    restart: on-failure
 
   node_2:
-    image: btc_node
+    <<: *node-common
     command: --host node_2 --port 9000 node_1:9000
     ports:
       - 9001:9000
-    volumes:
-      - btc:/data
-    networks:
-      - btc
-    restart: on-failure
     depends_on:
       node_1:
         condition: service_started
 
   node_3:
-    image: btc_node
+    <<: *node-common
     command: --host node_3 --port 9000 node_2:9000
     ports:
       - 9002:9000
-    volumes:
-      - btc:/data
-    networks:
-      - btc
-    restart: on-failure
     depends_on:
       node_2:
         condition: service_started
 
 
   node_4:
-    image: btc_node
+    <<: *node-common
     command: --host node_4 --port 9000 node_2:9000
     ports:
       - 9003:9000
-    volumes:
-      - btc:/data
-    networks:
-      - btc
-    restart: on-failure
     depends_on:
       node_3:
         condition: service_started
 
   node_5:
-    image: btc_node
+    <<: *node-common
     command: --host node_5 --port 9000 node_3:9000 node_4:9000 node_2:9000
     ports:
       - 9004:9000
-    volumes:
-      - btc:/data
-    networks:
-      - btc
-    restart: on-failure
     depends_on:
       node_4:
         condition: service_started
