@@ -20,7 +20,7 @@ async fn main() -> Result<()> {
     let blockchain_file = args.blockchain_file;
     let node_addrs = args.nodes;
 
-    let peers = peers::Peers::new(&args.host, args.port);
+    let peers = peers::Peers::new(&args.host, args.port, args.subscription_host);
 
     println!("-");
     peers
@@ -74,7 +74,7 @@ async fn main() -> Result<()> {
         println!("no initial nodes provided, starting as a seed node");
     }
 
-    // Start the TCP listener on 0.0.0.0:port
+    // Start the TCP listener
     let listener_addr = peers.listener_addr();
     let listener = TcpListener::bind(listener_addr)
         .await

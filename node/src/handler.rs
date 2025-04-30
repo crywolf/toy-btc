@@ -78,7 +78,7 @@ async fn process_connection(nodes: Arc<Peers>, mut stream: TcpStream, source_add
                 }
 
                 // send ACK message
-                let my_addr = nodes.listener_addr().to_string();
+                let my_addr = nodes.subscription_addr().to_string();
                 let ack_message = Message::SubscribeAck(my_addr);
                 let _ = ack_message
                     .send_async(&mut subscribe_stream)

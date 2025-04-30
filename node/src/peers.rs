@@ -8,21 +8,35 @@ use tokio::net::TcpStream;
 /// Connected peer nodes
 pub struct Peers {
     listener_addr: String,
+    subscription_addr: String,
 
     /// DashMap<target_addr, (TcpStream>,  Option<skip_source_addr>)>
     nodes: DashMap<String, (TcpStream, Option<String>)>,
 }
 
 impl Peers {
-    pub fn new(host: &str, port: u16) -> Self {
+    pub fn new(host: &str, port: u16, subscription_host: Option<String>) -> Self {
+        let listener_addr = format!("{host}:{port}");
+
+        let subscription_addr = if let Some(subscription_host) = subscription_host {
+            format!("{subscription_host}:{port}")
+        } else {
+            listener_addr.clone()
+        };
+
         Self {
-            listener_addr: format!("{host}:{port}"),
+            listener_addr,
+            subscription_addr,
             nodes: DashMap::new(),
         }
     }
 
     pub fn listener_addr(&self) -> &str {
         &self.listener_addr
+    }
+
+    pub fn subscription_addr(&self) -> &str {
+        &self.subscription_addr
     }
 
     pub fn add(&self, addr: &str, stream: TcpStream, skip_source_addr: &str) {
@@ -168,7 +182,7 @@ impl Peers {
             let node = item.key().clone();
             let (stream, _) = item.value_mut();
 
-            let message = Message::Subscribe(self.listener_addr.clone());
+            let message = Message::Subscribe(self.subscription_addr.clone());
             println!("<-- sending {message:?} to {node}");
             message
                 .send_async(stream)

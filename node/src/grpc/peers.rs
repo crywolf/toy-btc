@@ -21,6 +21,7 @@ pub struct Subscriber {
 /// Connected peer nodes
 pub struct Peers {
     listener_addr: String,
+    subscription_addr: String,
 
     /// DashMap<peer addr, grpc client>
     nodes: DashMap<String, NodeApiClient<Channel>>,
@@ -30,9 +31,18 @@ pub struct Peers {
 }
 
 impl Peers {
-    pub fn new(host: &str, port: u16) -> Self {
+    pub fn new(host: &str, port: u16, subscription_host: Option<String>) -> Self {
+        let listener_addr = format!("{host}:{port}");
+
+        let subscription_addr = if let Some(subscription_host) = subscription_host {
+            format!("{subscription_host}:{port}")
+        } else {
+            listener_addr.clone()
+        };
+
         Self {
-            listener_addr: format!("{host}:{port}"),
+            listener_addr,
+            subscription_addr,
             nodes: DashMap::new(),
             subscribers: DashMap::default(),
         }
@@ -40,6 +50,10 @@ impl Peers {
 
     pub fn listener_addr(&self) -> &str {
         &self.listener_addr
+    }
+
+    pub fn subscription_addr(&self) -> &str {
+        &self.subscription_addr
     }
 
     pub fn add_subscriber(
@@ -401,10 +415,12 @@ pub async fn create_subscription(
     cancel: CancellationToken,
 ) -> Result<()> {
     println!("calling subscribe_for_new_items RPC: {}", peer_addr);
-    let my_addr = peers.listener_addr().to_string();
+    let subscription_addr = peers.subscription_addr().to_string();
 
     let mut stream = client
-        .subscribe_for_new_items(Request::new(pb::SubscriptionRequest { addr: my_addr }))
+        .subscribe_for_new_items(Request::new(pb::SubscriptionRequest {
+            addr: subscription_addr,
+        }))
         .await
         .context("calling subscribe_for_new_items RPC")?
         .into_inner();

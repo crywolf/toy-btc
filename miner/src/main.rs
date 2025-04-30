@@ -29,7 +29,7 @@ impl Miner {
 
         let stream = TcpStream::connect(&address)
             .await
-            .context(format!("failed to connect to server: {}", address))?;
+            .context(format!("failed to connect to node: {}", address))?;
 
         let (mined_block_sender, mined_block_receiver) = flume::unbounded();
 

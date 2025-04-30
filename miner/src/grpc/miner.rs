@@ -32,7 +32,7 @@ impl Miner {
         let address = format!("http://{}", address);
         let client = MinerApiClient::connect(address.clone())
             .await
-            .with_context(|| format!("failed to connect to server: {}", address))?;
+            .with_context(|| format!("failed to connect to node: {}", address))?;
 
         let (mined_block_sender, mined_block_receiver) = flume::unbounded();
 

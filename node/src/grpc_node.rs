@@ -22,7 +22,7 @@ async fn main() -> Result<()> {
     let blockchain_file = args.blockchain_file;
     let node_addrs = args.nodes;
 
-    let peers = grpc::peers::Peers::new(&args.host, args.port);
+    let peers = grpc::peers::Peers::new(&args.host, args.port, args.subscription_host);
 
     let listener_addr = peers.listener_addr();
     let socket_addr = listener_addr
