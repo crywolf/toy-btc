@@ -3,8 +3,6 @@ x-node-common-config: &node-common
   build:
     context: .
     dockerfile: node_grpc.Dockerfile
-  volumes:
-    - btc:/data
   networks:
     - btc_grpc
   restart: on-failure
@@ -20,12 +18,16 @@ services:
     command: --host node_1 --port 50000
     ports:
       - 50001:50000
+    volumes:
+      - node1:/data
 
   node_2:
     <<: *node-common
     command: --host node_2 --port 50000 node_1:50000
     ports:
       - 50002:50000
+    volumes:
+      - node2:/data
     depends_on:
       node_1:
         condition: service_started
@@ -35,16 +37,19 @@ services:
     command: --host node_3 --port 50000 node_2:50000
     ports:
       - 50003:50000
+    volumes:
+      - node3:/data
     depends_on:
       node_2:
         condition: service_started
-
 
   node_4:
     <<: *node-common
     command: --host node_4 --port 50000 node_2:50000
     ports:
       - 50004:50000
+    volumes:
+      - node4:/data
     depends_on:
       node_3:
         condition: service_started
@@ -54,6 +59,8 @@ services:
     command: --host node_5 --port 50000 node_4:50000 node_2:50000
     ports:
       - 50005:50000
+    volumes:
+      - node5:/data
     depends_on:
       node_4:
         condition: service_started
@@ -79,7 +86,11 @@ services:
 ###############################################################
 
 volumes:
-  btc:
+  node1:
+  node2:
+  node3:
+  node4:
+  node5:
 
 networks:
   btc_grpc:

@@ -23,4 +23,6 @@ COPY --from=builder /btc_node/target/x86_64-unknown-linux-musl/release/node-grpc
 
 VOLUME [ "/data" ]
 
+WORKDIR /data
+
 ENTRYPOINT [ "/btc_node_grpc" ]
