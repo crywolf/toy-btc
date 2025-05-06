@@ -9,7 +9,24 @@ metadata:
 spec:
   ports:
   - port: 50000
-    targetPort: 50000
+    targetPort: node-listener
+  selector:
+    app: node1
+    type: grpc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-1-svc
+  labels:
+    app: node1
+    type: grpc
+spec:
+  type: NodePort
+  ports:
+  - port: 50000
+    targetPort: node-listener
+    nodePort: 31001
   selector:
     app: node1
     type: grpc
@@ -77,7 +94,24 @@ metadata:
 spec:
   ports:
   - port: 50000
-    targetPort: 50000
+    targetPort: node-listener
+  selector:
+    app: node2
+    type: grpc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-2-svc
+  labels:
+    app: node2
+    type: grpc
+spec:
+  type: NodePort
+  ports:
+  - port: 50000
+    targetPort: node-listener
+    nodePort: 31002
   selector:
     app: node2
     type: grpc
@@ -145,7 +179,24 @@ metadata:
 spec:
   ports:
   - port: 50000
-    targetPort: 50000
+    targetPort: node-listener
+  selector:
+    app: node3
+    type: grpc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-3-svc
+  labels:
+    app: node3
+    type: grpc
+spec:
+  type: NodePort
+  ports:
+  - port: 50000
+    targetPort: node-listener
+    nodePort: 31003
   selector:
     app: node3
     type: grpc
