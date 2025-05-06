@@ -11,6 +11,7 @@ Inspired by book [Building bitcoin in Rust](https://braiins.com/books/building-b
 * Periodical blockchain synchronization
 * Graceful shutdown
 * Docker compose for easy deployment and testing
+* Kubernetes deployment
 * and more...
 
 

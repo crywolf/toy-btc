@@ -1,0 +1,302 @@
+### NODE 1
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-1
+  labels:
+    app: node1
+    type: grpc
+spec:
+  ports:
+  - port: 50000
+    targetPort: 50000
+  selector:
+    app: node1
+    type: grpc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-1
+spec:
+  selector:
+    matchLabels:
+      app: node1
+      type: grpc
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: node1
+        type: grpc
+    spec:
+      volumes:
+      - name: node-1-storage
+        persistentVolumeClaim:
+          claimName: node-1-claim
+      containers:
+      - name: node
+        image: btc_node_grpc:local
+        imagePullPolicy: Never
+        args: ["--host", "0.0.0.0", "--port", "50000", "--subscription-host", "node-1"]
+        ports:
+        - name: node-listener
+          containerPort: 50000
+        volumeMounts:
+        - mountPath: "/data"
+          name: node-1-storage
+        resources:
+          limits:
+            cpu: "5"
+            memory: 500Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: node-1-claim
+spec:
+  #storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+
+---
+### NODE 2
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-2
+  labels:
+    app: node2
+    type: grpc
+spec:
+  ports:
+  - port: 50000
+    targetPort: 50000
+  selector:
+    app: node2
+    type: grpc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-2
+spec:
+  selector:
+    matchLabels:
+      app: node2
+      type: grpc
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: node2
+        type: grpc
+    spec:
+      volumes:
+      - name: node-2-storage
+        persistentVolumeClaim:
+          claimName: node-2-claim
+      containers:
+      - name: node
+        image: btc_node_grpc:local
+        imagePullPolicy: Never
+        args: ["--host", "0.0.0.0", "--port", "50000", "--subscription-host", "node-2", "node-1:50000"]
+        ports:
+         - name: node-listener
+           containerPort: 50000
+        volumeMounts:
+        - mountPath: "/data"
+          name: node-2-storage
+        resources:
+          limits:
+            cpu: "5"
+            memory: 500Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: node-2-claim
+spec:
+  #storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+
+---
+### NODE 3
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-3
+  labels:
+    app: node3
+    type: grpc
+spec:
+  ports:
+  - port: 50000
+    targetPort: 50000
+  selector:
+    app: node3
+    type: grpc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: node-3
+spec:
+  selector:
+    matchLabels:
+      app: node3
+      type: grpc
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: node3
+        type: grpc
+    spec:
+      volumes:
+      - name: node-3-storage
+        persistentVolumeClaim:
+          claimName: node-3-claim
+      containers:
+      - name: node
+        image: btc_node_grpc:local
+        imagePullPolicy: Never
+        args: ["--host", "0.0.0.0", "--port", "50000", "--subscription-host", "node-3", "node-2:50000"]
+        ports:
+         - name: node-listener
+           containerPort: 50000
+        volumeMounts:
+        - mountPath: "/data"
+          name: node-3-storage
+        resources:
+          limits:
+            cpu: "5"
+            memory: 500Mi
+          requests:
+            cpu: 100m
+            memory: 100Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: node-3-claim
+spec:
+  #storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+
+---
+### MINER
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: miner
+spec:
+  selector:
+    matchLabels:
+      app: miner
+      type: grpc
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: miner
+        type: grpc
+    spec:
+      volumes:
+      - name: miner-config
+        configMap:
+          name: miner-pubkey
+      containers:
+      - name: node
+        image: btc_miner_grpc:local
+        imagePullPolicy: Never
+        args: ["-a", "node-2:50000", "-p", "/data/alice.pub.pem"]
+        volumeMounts:
+          - mountPath: /data
+            name: miner-config
+        resources:
+          limits:
+            cpu: 500m
+            memory: 500Mi
+          requests:
+            cpu: 50m
+            memory: 100Mi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: miner-pubkey
+data:
+  alice.pub.pem: |
+    -----BEGIN PUBLIC KEY-----
+    MFYwEAYHKoZIzj0CAQYFK4EEAAoDQgAECSNDP1pkyAQDcgX7Uzypm9roEKCAsxJ5
+    G3Er+ANQukDSJ7q6wrsg5dGZzNNd/b4TSg9UBhzL0WJ++R86gkWBRw==
+    -----END PUBLIC KEY-----
+---
+
+### COMMON
+# VOLUME 1
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: blockchain-volume-1
+  labels:
+    type: local
+spec:
+  #storageClassName: manual
+  capacity:
+    storage: 100Mi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/data"
+---
+# VOLUME 2
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: blockchain-volume-2
+  labels:
+    type: local
+spec:
+  #storageClassName: manual
+  capacity:
+    storage: 100Mi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/data"
+---
+# VOLUME 3
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: blockchain-volume-3
+  labels:
+    type: local
+spec:
+  #storageClassName: manual
+  capacity:
+    storage: 100Mi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/data"
+---
